@@ -1,3 +1,13 @@
+data/
+datasets/
+models/
+weights/
+runs/
+__pycache__/
+*.pt
+*.pth
+.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
