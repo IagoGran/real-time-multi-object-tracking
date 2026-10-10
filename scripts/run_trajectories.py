@@ -1,4 +1,4 @@
-# scripts/run_detection.py
+# scripts/run_trajectories.py
 
 from pathlib import Path
 import configparser
@@ -7,57 +7,84 @@ import time
 import cv2
 
 from src.detection.yolo_detector import YoloDetector
+from src.tracking.byte_tracker import ByteTracker
+from src.tracking.trajectory_manager import TrajectoryManager
 from src.visualization.frame_renderer import FrameRenderer
 
 
 # -------------------------------------------------------------------
-# Sequence configuration
+# Configuration
 # -------------------------------------------------------------------
 
-sequence_path = Path(
+SEQUENCE_PATH = Path(
     "datasets/MOT17/train/MOT17-04-FRCNN"
 )
 
-frames_path = sequence_path / "img1"
-seqinfo_path = sequence_path / "seqinfo.ini"
+MODEL_PATH = "yolo26m.pt"
+CLASS_NAMES = ["person"]
+CONFIDENCE_THRESHOLD = 0.1
+MAX_TRAJECTORY_POINTS = 100
+
+
+# -------------------------------------------------------------------
+# Load sequence metadata
+# -------------------------------------------------------------------
+
+frames_path = SEQUENCE_PATH / "img1"
+seqinfo_path = SEQUENCE_PATH / "seqinfo.ini"
 
 frames = sorted(frames_path.glob("*.jpg"))
 
 if not frames:
-    raise RuntimeError(f"No frames found in {frames_path}")
+    raise RuntimeError(
+        f"No frames found in {frames_path}"
+    )
 
 if not seqinfo_path.exists():
-    raise RuntimeError(f"Sequence info not found: {seqinfo_path}")
-
-
-# -------------------------------------------------------------------
-# Read MOT17 sequence metadata
-# -------------------------------------------------------------------
+    raise RuntimeError(
+        f"Sequence info not found: {seqinfo_path}"
+    )
 
 config = configparser.ConfigParser()
 config.read(seqinfo_path)
 
-source_fps = config.getint("Sequence", "frameRate")
+source_fps = config.getint(
+    "Sequence",
+    "frameRate",
+)
+
 frame_duration_ms = 1000 / source_fps
 
-width = config.getint("Sequence", "imWidth")
-height = config.getint("Sequence", "imHeight")
+width = config.getint(
+    "Sequence",
+    "imWidth",
+)
 
-print(f"Found {len(frames)} frames.")
-print(f"Sequence FPS: {source_fps}")
+height = config.getint(
+    "Sequence",
+    "imHeight",
+)
+
+print(f"Sequence: {SEQUENCE_PATH.name}")
+print(f"Frames: {len(frames)}")
 print(f"Resolution: {width}x{height}")
+print(f"Source FPS: {source_fps}")
 
 
 # -------------------------------------------------------------------
-# Detector
+# Pipeline
 # -------------------------------------------------------------------
 
 detector = YoloDetector(
-    "yolo26m.pt",
-    ["person"],
+    MODEL_PATH,
+    CLASS_NAMES,
 )
 
-confidence_threshold = 0.1
+tracker = ByteTracker()
+
+trajectory_manager = TrajectoryManager(
+    max_points=MAX_TRAJECTORY_POINTS,
+)
 
 renderer = FrameRenderer()
 
@@ -67,14 +94,19 @@ renderer = FrameRenderer()
 # -------------------------------------------------------------------
 
 try:
-    for frame_index, frame_path in enumerate(frames, start=1):
+    for frame_index, frame_path in enumerate(
+        frames,
+        start=1,
+    ):
 
         frame_start = time.perf_counter()
 
         frame = cv2.imread(str(frame_path))
 
         if frame is None:
-            print(f"Failed to read frame: {frame_path}")
+            print(
+                f"Failed to read frame: {frame_path}"
+            )
             continue
 
         # -----------------------------------------------------------
@@ -83,47 +115,55 @@ try:
 
         detections = detector.detect(
             frame,
-            confidence_threshold=confidence_threshold,
+            confidence_threshold=CONFIDENCE_THRESHOLD,
         )
 
         # -----------------------------------------------------------
-        # Draw detections
+        # Tracking
         # -----------------------------------------------------------
 
-        for detection in detections:
+        tracks = tracker.update(
+            detections,
+            frame,
+        )
 
-            x1, y1, x2, y2 = map(
-                int,
-                (
-                    detection.x1,
-                    detection.y1,
-                    detection.x2,
-                    detection.y2,
-                ),
-            )
+        # -----------------------------------------------------------
+        # Trajectories
+        # -----------------------------------------------------------
 
-            cv2.rectangle(
+        trajectory_manager.update(
+            tracks,
+            frame_index,
+        )
+
+        # -----------------------------------------------------------
+        # Visualization
+        # -----------------------------------------------------------
+
+        for track in tracks:
+
+            renderer.draw_track(
                 frame,
-                (x1, y1),
-                (x2, y2),
-                (255, 0, 0),
-                2,
+                track,
             )
 
-            renderer.draw_outlined_text(
-                frame,
-                f"{detection.class_name} {detection.confidence:.2f}",
-                (x1, max(y1 - 10, 20)),
-                (255, 0, 0),
-                font_scale=0.5,
+            trajectory = trajectory_manager.get(
+                track.track_id
             )
+
+            if trajectory is not None:
+                renderer.draw_trajectory(
+                    frame,
+                    trajectory,
+                )
 
         # -----------------------------------------------------------
         # Timing
         # -----------------------------------------------------------
 
         processing_time_ms = (
-            time.perf_counter() - frame_start
+            time.perf_counter()
+            - frame_start
         ) * 1000
 
         processing_fps = (
@@ -140,12 +180,14 @@ try:
             frame,
             f"Frame: {frame_index}/{len(frames)} | "
             f"Detections: {len(detections)} | "
+            f"Tracks: {len(tracks)} | "
+            f"Trajectories: {len(trajectory_manager.trajectories)} | "
             f"Processing: {processing_fps:.1f} FPS | "
             f"Source: {source_fps} FPS",
         )
 
         cv2.imshow(
-            "YOLO Detection",
+            "Multi-Object Tracking - Trajectories",
             frame,
         )
 
@@ -154,7 +196,8 @@ try:
         # -----------------------------------------------------------
 
         remaining_time_ms = (
-            frame_duration_ms - processing_time_ms
+            frame_duration_ms
+            - processing_time_ms
         )
 
         delay = max(
