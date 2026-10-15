@@ -77,3 +77,10 @@ class CountingLine:
             (start_x, start_y),
             (end_x, end_y),
         )
+        
+@dataclass
+class BoundingBoxMetrics:
+    iou: float
+    edge_error: float
+    center_error: float
+    size_error: float

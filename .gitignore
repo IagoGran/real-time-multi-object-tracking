@@ -1,8 +1,9 @@
 data/
-datasets/
+MOT17/
 models/
 weights/
 runs/
+results/*
 __pycache__/
 *.pt
 *.pth

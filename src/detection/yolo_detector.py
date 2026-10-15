@@ -1,28 +1,39 @@
 from pathlib import Path
 import math
 
+import numpy as np
 from ultralytics import YOLO
 
+from src.detection.detector import Detector
 from src.types import Detection
 
 
-class YoloDetector:
+class YoloDetector(Detector):
 
     STRIDE = 32
+
+    DEFAULT_INFERENCE_CONFIDENCE = 0.01
 
     def __init__(
         self,
         model_path: str | Path,
-        class_names: list[str]
+        class_names: list[str],
+        inference_confidence: float = DEFAULT_INFERENCE_CONFIDENCE,
     ):
         self.model = YOLO(model_path)
         self.class_names = class_names
+        self.inference_confidence = inference_confidence
 
-    def detect(
+    def predict(
         self,
-        frame,
-        confidence_threshold: float = 0.5,
+        frame: np.ndarray,
     ) -> list[Detection]:
+        """
+        Run model inference once and return all relevant detections
+        above the detector's minimum inference confidence.
+
+        No benchmark/evaluation confidence threshold is applied here.
+        """
 
         imgsz = self._get_inference_size(frame)
 
@@ -30,9 +41,10 @@ class YoloDetector:
             frame,
             imgsz=imgsz,
             verbose=False,
+            conf=self.inference_confidence,
         )
 
-        detections = []
+        detections: list[Detection] = []
 
         for result in results:
             for box, confidence, class_id in zip(
@@ -49,27 +61,62 @@ class YoloDetector:
                 class_id = int(class_id)
                 class_name = self.model.names[class_id]
 
-                if (
-                    class_name in self.class_names
-                    and confidence > confidence_threshold
-                ):
-                    detections.append(
-                        Detection(
-                            x1=x1,
-                            y1=y1,
-                            x2=x2,
-                            y2=y2,
-                            confidence=confidence,
-                            class_id=class_id,
-                            class_name=class_name,
-                        )
+                if class_name not in self.class_names:
+                    continue
+
+                detections.append(
+                    Detection(
+                        x1=x1,
+                        y1=y1,
+                        x2=x2,
+                        y2=y2,
+                        confidence=confidence,
+                        class_id=class_id,
+                        class_name=class_name,
                     )
+                )
 
         return detections
 
+    def detect(
+        self,
+        frame: np.ndarray,
+        confidence_threshold: float = 0.5,
+    ) -> list[Detection]:
+        """
+        Standard detector API.
+
+        Runs inference and returns only detections that satisfy the
+        requested confidence threshold.
+
+        Existing tracking/demo code can continue calling this method.
+        """
+
+        detections = self.predict(frame)
+
+        return self.filter_by_confidence(
+            detections,
+            confidence_threshold,
+        )
+
+    @staticmethod
+    def filter_by_confidence(
+        detections: list[Detection],
+        confidence_threshold: float,
+    ) -> list[Detection]:
+        """
+        Filter already-computed detections without running inference again.
+        """
+
+        return [
+            detection
+            for detection in detections
+            if detection.confidence >= confidence_threshold
+        ]
+
     def _get_inference_size(
         self,
-        frame
+        frame: np.ndarray,
     ) -> tuple[int, int]:
 
         height, width = frame.shape[:2]
