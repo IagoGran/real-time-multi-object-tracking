@@ -20,11 +20,34 @@ This project aims to build an end-to-end pipeline for:
 
 - Python
 - PyTorch
+- Torchvision
 - OpenCV
 - YOLO
 - ByteTrack
 - BoT-SORT
 - TrackEval
+
+## Detectors
+
+Detectors implement `predict(frame)` and shared confidence filtering;
+`detect(frame, confidence_threshold)` remains available for tracking and
+analysis components. Evaluation runs each frame through the model once and
+applies every requested confidence threshold to those detections.
+
+Evaluate detector localization on one MOT17 sequence from the repository root:
+
+```bash
+python -m src.evaluation.evaluate_detectors --max-frames 8
+```
+
+By default, the evaluator sweeps confidence thresholds from 0.10 to 0.60.
+Pass `--confidence-threshold 0.3` to run a single threshold. A sweep stores all
+thresholds in one checkpoint, `results/detector_benchmark.json`. The evaluator logs to the console and
+`results/detector_benchmark.log`, and saves sequence and aggregate metrics
+progressively. Use `--all-train` to evaluate one FRCNN variant per scene,
+`--resume` to continue compatible checkpoints, and `--skip-estimate` to skip
+runtime sampling. Faster R-CNN uses Torchvision's pretrained COCO weights,
+which may be downloaded the first time it is initialized.
 
 ## Dataset
 
