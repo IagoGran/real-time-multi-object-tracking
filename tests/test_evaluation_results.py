@@ -1,0 +1,35 @@
+import json
+
+from src.evaluation.evaluation_results import (
+    PUBLIC_METRIC_KEYS,
+    build_evaluation_result,
+    save_evaluation_result,
+)
+
+
+def _metrics(value):
+    return {key: value for key in PUBLIC_METRIC_KEYS}
+
+
+def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(tmp_path):
+    result = build_evaluation_result(
+        evaluation_id="exp-1",
+        dataset={"name": "MOT17", "sequences": ["MOT17-04-FRCNN"]},
+        models={"student": {"weights": "best.pt"}},
+        thresholds=[0.1, 0.3],
+        match_iou_threshold=0.5,
+        aggregate_metrics={0.1: {"student": _metrics(0.1)}, 0.3: {"student": _metrics(0.3)}},
+        per_sequence_metrics={
+            0.1: {"student": {"MOT17-04-FRCNN": _metrics(0.1)}},
+            0.3: {"student": {"MOT17-04-FRCNN": _metrics(0.3)}},
+        },
+        started_at="start",
+        completed_at="end",
+    )
+    path = tmp_path / "evaluation.json"
+    save_evaluation_result(path, result)
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert set(loaded["results"]) == {"0.10", "0.30"}
+    assert loaded["results"]["0.30"]["student"]["mean_iou"] == 0.3
+    assert loaded["per_sequence"]["0.10"]["student"]["MOT17-04-FRCNN"]["fps"] == 0.1
+    assert "observations" not in loaded["results"]["0.10"]["student"]
