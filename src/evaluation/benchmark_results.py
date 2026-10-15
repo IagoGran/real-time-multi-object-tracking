@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -6,7 +7,16 @@ import tempfile
 from typing import Any
 
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+
+
+def confidence_threshold_key(threshold: float) -> str:
+    """Return the stable JSON representation used for threshold keys."""
+    key = format(Decimal(str(threshold)), "f")
+    if "." not in key:
+        return f"{key}.00"
+    integer, fractional = key.split(".", maxsplit=1)
+    return f"{integer}.{fractional.ljust(2, '0')}"
 
 
 def utc_timestamp() -> str:
@@ -16,14 +26,14 @@ def utc_timestamp() -> str:
 def build_benchmark_config(
     models: list[dict[str, str]],
     sequences: list[dict[str, str | int]],
-    confidence_threshold: float,
+    confidence_thresholds: list[float],
     match_iou_threshold: float,
     max_frames: int | None,
 ) -> dict[str, Any]:
     return {
         "models": models,
         "sequences": sequences,
-        "confidence_threshold": confidence_threshold,
+        "confidence_thresholds": confidence_thresholds,
         "match_iou_threshold": match_iou_threshold,
         "max_frames": max_frames,
     }
@@ -60,16 +70,22 @@ def load_checkpoint(
             f"Cannot resume: failed to read checkpoint {path}: {error}"
         ) from error
 
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError(
+            "Cannot resume: checkpoint root must be a JSON object."
+        )
+
     if checkpoint.get("format_version") != FORMAT_VERSION:
+        version = checkpoint.get("format_version")
+        if version == 1:
+            raise RuntimeError(
+                "Cannot resume: checkpoint format version 1 is incompatible "
+                "with version 2 confidence-threshold sweep results. Start a new checkpoint."
+            )
         raise RuntimeError(
             "Cannot resume: unsupported checkpoint format version "
             f"{checkpoint.get('format_version')!r}; expected "
             f"{FORMAT_VERSION}."
-        )
-
-    if not isinstance(checkpoint, dict):
-        raise RuntimeError(
-            "Cannot resume: checkpoint root must be a JSON object."
         )
 
     actual_config = checkpoint.get("config")
@@ -138,4 +154,11 @@ def combination_completed(
     sequence_name: str,
 ) -> bool:
     model_results = checkpoint["results"].get(model_name, {})
-    return sequence_name in model_results
+    sequence_results = model_results.get(sequence_name)
+    if not isinstance(sequence_results, dict):
+        return False
+    thresholds = checkpoint.get("config", {}).get("confidence_thresholds", [])
+    return bool(thresholds) and all(
+        confidence_threshold_key(threshold) in sequence_results
+        for threshold in thresholds
+    )

@@ -1,10 +1,12 @@
 import math
 
 import numpy as np
+import pytest
 
 from src.detection.detector import Detector
 from src.evaluation.benchmark import (
     ModelSpec,
+    _update_checkpoint_aggregates,
     aggregate_sequence_results,
     run_benchmark,
 )
@@ -66,6 +68,26 @@ def test_aggregation_weights_counts_and_combines_original_observations():
     assert aggregate["fps"] == 10.0
 
 
+def test_aggregates_are_separate_for_each_confidence_threshold():
+    checkpoint = {
+        "results": {
+            "model": {
+                "sequence-a": {
+                    "0.10": _sequence_result(1, 1, 1, 0, 0, 0.1, [0.2]),
+                    "0.20": _sequence_result(1, 1, 1, 0, 0, 0.1, [0.9]),
+                },
+                "sequence-b": {
+                    "0.10": _sequence_result(3, 3, 3, 0, 0, 0.3, [0.4] * 3),
+                    "0.20": _sequence_result(3, 3, 3, 0, 0, 0.3, [0.8] * 3),
+                },
+            }
+        }
+    }
+    _update_checkpoint_aggregates(checkpoint, [0.1, 0.2])
+    assert checkpoint["aggregates"]["0.10"]["model"]["mean_iou"] == 0.35
+    assert checkpoint["aggregates"]["0.20"]["model"]["mean_iou"] == 0.825
+
+
 def test_benchmark_runs_stub_detector_and_checkpoints_sequence(
     tmp_path,
     monkeypatch,
@@ -73,8 +95,8 @@ def test_benchmark_runs_stub_detector_and_checkpoints_sequence(
     import src.evaluation.benchmark as benchmark_module
 
     class StubDetector(Detector):
-        def detect(self, frame, confidence_threshold=0.5):
-            _ = frame, confidence_threshold
+        def predict(self, frame):
+            _ = frame
             return [Detection(0, 0, 10, 10, 0.9, 0, "person")]
 
     frame_path = tmp_path / "000007.jpg"
@@ -100,7 +122,7 @@ def test_benchmark_runs_stub_detector_and_checkpoints_sequence(
         {
             "models": [{"name": "stub", "signature": "stub-v1"}],
             "sequences": [{"name": sequence.name, "path": str(tmp_path)}],
-            "confidence_threshold": 0.1,
+            "confidence_thresholds": [0.1, 0.2],
             "match_iou_threshold": 0.5,
             "max_frames": 1,
         }
@@ -115,7 +137,7 @@ def test_benchmark_runs_stub_detector_and_checkpoints_sequence(
             )
         ],
         sequences=[sequence],
-        confidence_threshold=0.1,
+        confidence_thresholds=[0.1, 0.2],
         match_iou_threshold=0.5,
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
@@ -124,8 +146,41 @@ def test_benchmark_runs_stub_detector_and_checkpoints_sequence(
 
     sequence_result = checkpoint["results"]["stub"][sequence.name]
     assert checkpoint_path.exists()
-    assert sequence_result["frames"] == 1
-    assert sequence_result["matched_boxes"] == 1
-    assert sequence_result["mean_iou"] == 1.0
-    assert result["stub"]["mean_iou"] == 1.0
-    assert result["stub"] == checkpoint["aggregates"]["stub"]
+    assert sequence_result["0.10"]["frames"] == 1
+    assert sequence_result["0.10"]["matched_boxes"] == 1
+    assert sequence_result["0.10"]["mean_iou"] == 1.0
+    assert result[0.1]["stub"]["mean_iou"] == 1.0
+    assert result[0.1]["stub"] == checkpoint["aggregates"]["0.10"]["stub"]
+    assert result[0.1]["stub"]["inference_seconds_total"] == result[0.2]["stub"]["inference_seconds_total"]
+
+
+@pytest.mark.parametrize("frame_count", [1, 10])
+def test_sweep_runs_predict_once_per_frame_for_all_thresholds(tmp_path, monkeypatch, frame_count):
+    import src.evaluation.benchmark as benchmark_module
+
+    class CountingDetector(Detector):
+        calls = 0
+
+        def predict(self, frame):
+            type(self).calls += 1
+            _ = frame
+            return [Detection(0, 0, 10, 10, 0.15, 0, "person"),
+                    Detection(0, 0, 10, 10, 0.35, 0, "person"),
+                    Detection(0, 0, 10, 10, 0.75, 0, "person")]
+
+    frames = tuple(Mot17Frame(i, tmp_path / f"{i:06}.jpg") for i in range(frame_count))
+    sequence = Mot17Sequence("test", tmp_path, frames, {})
+    monkeypatch.setattr(benchmark_module.cv2, "imread", lambda _: np.zeros((12, 12, 3), dtype=np.uint8))
+    monkeypatch.setattr(benchmark_module.torch.cuda, "is_available", lambda: False)
+    thresholds = [0.1, 0.2, 0.4, 0.8, 0.5, 0.6]
+    checkpoint = new_checkpoint({"confidence_thresholds": thresholds})
+
+    result = run_benchmark(
+        [ModelSpec("count", "fake", CountingDetector)], [sequence], thresholds,
+        0.5, checkpoint, tmp_path / "sweep.json", progress_every=100,
+    )
+
+    assert CountingDetector.calls == frame_count
+    assert [result[t]["count"]["false_positives"] for t in thresholds] == [
+        count * frame_count for count in [3, 2, 1, 0, 1, 1]
+    ]

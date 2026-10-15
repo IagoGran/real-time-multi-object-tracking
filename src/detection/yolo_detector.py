@@ -78,42 +78,6 @@ class YoloDetector(Detector):
 
         return detections
 
-    def detect(
-        self,
-        frame: np.ndarray,
-        confidence_threshold: float = 0.5,
-    ) -> list[Detection]:
-        """
-        Standard detector API.
-
-        Runs inference and returns only detections that satisfy the
-        requested confidence threshold.
-
-        Existing tracking/demo code can continue calling this method.
-        """
-
-        detections = self.predict(frame)
-
-        return self.filter_by_confidence(
-            detections,
-            confidence_threshold,
-        )
-
-    @staticmethod
-    def filter_by_confidence(
-        detections: list[Detection],
-        confidence_threshold: float,
-    ) -> list[Detection]:
-        """
-        Filter already-computed detections without running inference again.
-        """
-
-        return [
-            detection
-            for detection in detections
-            if detection.confidence >= confidence_threshold
-        ]
-
     def _get_inference_size(
         self,
         frame: np.ndarray,

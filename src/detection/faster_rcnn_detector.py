@@ -11,12 +11,19 @@ from src.types import Detection
 
 class FasterRCNNDetector(Detector):
 
+    DEFAULT_INFERENCE_CONFIDENCE = 0.01
+
     def __init__(
         self,
         class_names: list[str] | None = None,
+        inference_confidence: float = DEFAULT_INFERENCE_CONFIDENCE,
     ):
         self.weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
         self.model = fasterrcnn_resnet50_fpn(weights=self.weights)
+        self.inference_confidence = inference_confidence
+        # torchvision's default score threshold (0.05) would discard
+        # predictions needed by lower benchmark thresholds.
+        self.model.roi_heads.score_thresh = inference_confidence
         self.model.eval()
 
         self.device = torch.device(
@@ -29,11 +36,7 @@ class FasterRCNNDetector(Detector):
         )
         self.categories = self.weights.meta["categories"]
 
-    def detect(
-        self,
-        frame: np.ndarray,
-        confidence_threshold: float = 0.5,
-    ) -> list[Detection]:
+    def predict(self, frame: np.ndarray) -> list[Detection]:
         frame_tensor = torch.from_numpy(
             frame[:, :, ::-1].copy()
         ).permute(2, 0, 1).to(dtype=torch.float32)
@@ -53,10 +56,7 @@ class FasterRCNNDetector(Detector):
             class_name = self.categories[class_id]
             confidence = float(confidence)
 
-            if (
-                class_name in self.class_names
-                and confidence > confidence_threshold
-            ):
+            if class_name in self.class_names:
                 x1, y1, x2, y2 = map(float, box)
                 detections.append(
                     Detection(

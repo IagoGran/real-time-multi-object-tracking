@@ -29,10 +29,10 @@ This project aims to build an end-to-end pipeline for:
 
 ## Detectors
 
-Detectors implement a small common interface: `detect(frame, confidence_threshold)`
-returns `list[Detection]`. The existing YOLO detector and the pretrained
-Torchvision Faster R-CNN detector both follow this contract; tracking and
-analysis components consume detections without depending on either model.
+Detectors implement `predict(frame)` and shared confidence filtering;
+`detect(frame, confidence_threshold)` remains available for tracking and
+analysis components. Evaluation runs each frame through the model once and
+applies every requested confidence threshold to those detections.
 
 Evaluate detector localization on one MOT17 sequence from the repository root:
 
@@ -41,10 +41,8 @@ python -m src.evaluation.evaluate_detectors --max-frames 8
 ```
 
 By default, the evaluator sweeps confidence thresholds from 0.10 to 0.60.
-Pass `--confidence-threshold 0.3` to run a single threshold. A sweep creates
-one checkpoint per threshold (for example,
-`results/detector_benchmark_conf_0p30.json`); a single-threshold run keeps the
-exact `--results` path. The evaluator logs to the console and
+Pass `--confidence-threshold 0.3` to run a single threshold. A sweep stores all
+thresholds in one checkpoint, `results/detector_benchmark.json`. The evaluator logs to the console and
 `results/detector_benchmark.log`, and saves sequence and aggregate metrics
 progressively. Use `--all-train` to evaluate one FRCNN variant per scene,
 `--resume` to continue compatible checkpoints, and `--skip-estimate` to skip

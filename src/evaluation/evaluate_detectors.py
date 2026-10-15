@@ -542,6 +542,8 @@ def main() -> None:
             estimate_runtime(
                 models=models,
                 sequences=sequences,
+                confidence_thresholds=thresholds,
+                match_iou_threshold=args.match_iou_threshold,
                 sample_count=(
                     args.estimate_samples
                 ),
