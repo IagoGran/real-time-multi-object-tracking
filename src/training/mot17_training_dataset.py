@@ -114,6 +114,7 @@ def prepare_mot17_dataset(
     output_dir: Path,
     mode: str = "supervised",
     pseudo_labels: dict[str, list[tuple[float, float, float, float]]] | None = None,
+    max_frames_per_sequence: int | None = None,
 ) -> PreparedDataset:
     """Stage one FRCNN variant per configured scene and write YOLO labels."""
     if mode not in {"supervised", "teacher"}:
@@ -152,7 +153,10 @@ def prepare_mot17_dataset(
             staged_dir = root / "images" / split_name / sequence_name
             _ensure_image_link(image_source, staged_dir)
 
-            for image_path in sorted(image_source.glob("*.jpg")):
+            image_paths = sorted(image_source.glob("*.jpg"))
+            if max_frames_per_sequence is not None:
+                image_paths = image_paths[:max_frames_per_sequence]
+            for image_path in image_paths:
                 frame_number = int(image_path.stem)
                 if split_name == "val" or mode == "supervised":
                     if frame_number in annotations.frames_with_excluded_annotations:

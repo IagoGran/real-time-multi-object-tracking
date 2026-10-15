@@ -9,9 +9,13 @@ import uuid
 from src.evaluation.benchmark_results import confidence_threshold_key
 
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 PUBLIC_METRIC_KEYS = (
     "match_rate",
+    "miss_rate",
+    "frames",
+    "gt_boxes",
+    "matched_boxes",
     "mean_iou",
     "median_iou",
     "mean_edge_error",
@@ -44,6 +48,10 @@ def build_evaluation_result(
     ],
     started_at: str,
     completed_at: str,
+    evaluation_name: str | None = None,
+    git_commit: str | None = None,
+    split: dict[str, Any] | None = None,
+    partition: str | None = None,
 ) -> dict[str, Any]:
     """Build the public result schema from already-computed benchmark metrics."""
     result_by_threshold = {
@@ -66,10 +74,19 @@ def build_evaluation_result(
     return {
         "format_version": FORMAT_VERSION,
         "evaluation_id": evaluation_id,
+        "evaluation_name": evaluation_name or evaluation_id,
+        "timestamp": completed_at,
+        "git_commit": git_commit,
         "dataset": dataset,
+        "split": split,
+        "partition": partition,
         "models": models,
         "thresholds": thresholds,
         "match_iou_threshold": match_iou_threshold,
+        "timing_semantics": {
+            "fps_and_inference_ms": "quality-sweep inference timing at the detector's configured low inference floor; not operational-confidence deployment FPS",
+            "operational_speed_tool": "src.evaluation.benchmark_detector_speed",
+        },
         "results": result_by_threshold,
         "per_sequence": sequence_by_threshold,
         "started_at": started_at,

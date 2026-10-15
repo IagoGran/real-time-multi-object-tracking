@@ -3,7 +3,14 @@ MOT17/
 models/
 weights/
 runs/
-results/*
+datasets/MOT17/
+datasets/MOT17_*/
+datasets/*pseudo*label*/
+results/training/*/train_batch*.jpg
+results/training/*/val_batch*.jpg
+results/training/*/weights/
+results/training/*/events.out.tfevents.*
+*.tmp
 __pycache__/
 *.pt
 *.pth

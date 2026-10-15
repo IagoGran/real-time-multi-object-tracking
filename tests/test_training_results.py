@@ -41,3 +41,11 @@ def test_teacher_manifest_records_threshold_and_weights():
 
 def test_teacher_experiment_name_contains_teacher():
     assert "teacher_yolo26m" in make_experiment_id("teacher", "yolo26n.pt", "yolo26m.pt")
+
+
+def test_experiment_ids_are_unique_and_directories_do_not_overwrite(tmp_path):
+    first = make_experiment_id("supervised", "yolo26n.pt")
+    second = make_experiment_id("supervised", "yolo26n.pt")
+    assert first != second
+    (tmp_path / first).mkdir()
+    (tmp_path / second).mkdir(exist_ok=False)

@@ -36,17 +36,32 @@ def test_teacher_threshold_filters_person_boxes_and_cache_prevents_second_pass(t
     )
     model = FakeModel([result])
 
-    labels, cache_dir, cache_hit = generate_pseudo_labels(
+    labels, cache_dir, cache_hit, stats = generate_pseudo_labels(
         model, [image], "teacher.pt", 0.5, tmp_path / "cache"
     )
     assert not cache_hit
     assert labels[str(image.resolve())] == [(0.0, 0.0, 20.0, 40.0)]
+    assert stats["total_pseudo_labels"] == 1
+    assert stats["images_without_pseudo_labels"] == 0
     assert model.calls[0]["stream"] is True
     assert model.calls[0]["conf"] == 0.001
 
-    cached, reused_dir, cache_hit = generate_pseudo_labels(
+    cached, reused_dir, cache_hit, cached_stats = generate_pseudo_labels(
         model, [image], "teacher.pt", 0.5, tmp_path / "cache"
     )
     assert cache_hit and reused_dir == cache_dir
     assert cached == labels
+    assert cached_stats == stats
     assert len(model.calls) == 1
+
+
+def test_cache_signature_changes_with_teacher_confidence_and_training_split(tmp_path):
+    from src.training.pseudo_labels import _cache_signature
+
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"frame")
+    base = _cache_signature("teacher.pt", 0.25, [image], ["MOT17-02-FRCNN"], "test-version")
+    assert base != _cache_signature("other.pt", 0.25, [image], ["MOT17-02-FRCNN"], "test-version")
+    assert base != _cache_signature("teacher.pt", 0.5, [image], ["MOT17-02-FRCNN"], "test-version")
+    assert base != _cache_signature("teacher.pt", 0.25, [image], ["MOT17-05-FRCNN"], "test-version")
+    assert base != _cache_signature("teacher.pt", 0.25, [image], ["MOT17-02-FRCNN"], "other-version")

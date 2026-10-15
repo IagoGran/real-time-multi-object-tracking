@@ -7,6 +7,7 @@ from src.evaluation.evaluate_detectors import (
     confidence_thresholds,
     format_results_table,
     load_or_create_checkpoint,
+    load_split_partition,
 )
 
 
@@ -85,3 +86,24 @@ def test_results_table_formats_simulated_metrics():
     assert "0.790" in table
     assert "FP/fr" in table
     assert "P90%" in table
+
+
+def test_split_partition_loads_exact_validation_sequences(tmp_path):
+    dataset_root = tmp_path / "MOT17" / "train"
+    names = ["MOT17-02-FRCNN", "MOT17-04-FRCNN", "MOT17-11-FRCNN"]
+    for name in names:
+        image_dir = dataset_root / name / "img1"
+        (image_dir).mkdir(parents=True)
+        (image_dir / "000001.jpg").touch()
+        gt_dir = dataset_root / name / "gt"
+        gt_dir.mkdir()
+        (gt_dir / "gt.txt").write_text("", encoding="utf-8")
+    (tmp_path / "configs").mkdir()
+    config_path = tmp_path / "configs" / "split.json"
+    config_path.write_text(
+        '{"format_version":1,"name":"fixture","dataset_root":"MOT17/train","prepared_dataset_root":"prepared","variant":"FRCNN","train_sequences":["MOT17-02-FRCNN"],"validation_sequences":["MOT17-04-FRCNN","MOT17-11-FRCNN"],"ignored_frame_policy":"skip_frames_with_excluded_annotations"}',
+        encoding="utf-8",
+    )
+    config, sequences = load_split_partition(config_path, "validation", max_frames=1)
+    assert [sequence.name for sequence in sequences] == list(config.validation_sequences)
+    assert all(len(sequence.frames) == 1 for sequence in sequences)

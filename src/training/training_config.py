@@ -52,6 +52,9 @@ def validate_sequence_split(
             raise ValueError(
                 f"Expected one FRCNN variant per scene, got {sequence!r}."
             )
+    scene_names = ["-".join(sequence.split("-")[:2]) for sequence in train | validation]
+    if len(scene_names) != len(set(scene_names)):
+        raise ValueError("The split must use exactly one MOT17 variant per scene.")
 
 
 def load_training_config(path: Path = DEFAULT_SPLIT_CONFIG) -> Mot17TrainingConfig:

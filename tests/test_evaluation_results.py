@@ -15,7 +15,7 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
     result = build_evaluation_result(
         evaluation_id="exp-1",
         dataset={"name": "MOT17", "sequences": ["MOT17-04-FRCNN"]},
-        models={"student": {"weights": "best.pt"}},
+        models={"student": {"weights_path": "best.pt", "signature": "best.pt", "weights_sha256": "abc123"}},
         thresholds=[0.1, 0.3],
         match_iou_threshold=0.5,
         aggregate_metrics={0.1: {"student": _metrics(0.1)}, 0.3: {"student": _metrics(0.3)}},
@@ -25,6 +25,10 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
         },
         started_at="start",
         completed_at="end",
+        evaluation_name="final_comparison",
+        git_commit="abc123",
+        split={"name": "fixture"},
+        partition="validation",
     )
     path = tmp_path / "evaluation.json"
     save_evaluation_result(path, result)
@@ -33,3 +37,7 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
     assert loaded["results"]["0.30"]["student"]["mean_iou"] == 0.3
     assert loaded["per_sequence"]["0.10"]["student"]["MOT17-04-FRCNN"]["fps"] == 0.1
     assert "observations" not in loaded["results"]["0.10"]["student"]
+    assert loaded["evaluation_name"] == "final_comparison"
+    assert loaded["partition"] == "validation"
+    assert loaded["git_commit"] == "abc123"
+    assert loaded["models"]["student"]["weights_sha256"] == "abc123"

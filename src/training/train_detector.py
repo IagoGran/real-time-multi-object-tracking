@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -50,6 +51,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default=None, help="Ultralytics device, e.g. 0, cpu; default selects automatically.")
     parser.add_argument("--evaluate-after-training", action="store_true")
     parser.add_argument("--resume-from", type=Path, help="Resume Ultralytics training from an experiment's last.pt.")
+    parser.add_argument("--max-frames-per-sequence", type=int, help="Limit every sequence for smoke tests/preflight.")
+    parser.add_argument("--prepare-only", action="store_true", help="Prepare the configured dataset and exit without training.")
     args = parser.parse_args(argv)
     if args.mode == "teacher" and not args.teacher_weights and not args.resume_from:
         parser.error("--teacher-weights is required with --mode teacher.")
@@ -59,6 +62,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--teacher-confidence must be between 0 and 1.")
     if args.epochs <= 0 or args.batch <= 0 or args.imgsz <= 0 or args.workers < 0 or args.patience < 0:
         parser.error("epochs, batch, and imgsz must be positive; workers and patience cannot be negative.")
+    if args.max_frames_per_sequence is not None and args.max_frames_per_sequence <= 0:
+        parser.error("--max-frames-per-sequence must be positive.")
     return args
 
 
@@ -102,6 +107,7 @@ def _training_parameters(args: argparse.Namespace, data_yaml: Path) -> dict[str,
         "seed": args.seed,
         "device": args.device or "auto",
         "deterministic": True,
+        "max_frames_per_sequence": args.max_frames_per_sequence,
     }
 
 
@@ -127,38 +133,55 @@ def _evaluate_weights(weights: Path, experiment_id: str, mode: str) -> None:
     )
 
 
-def _prepare_dataset(args: argparse.Namespace, config: Mot17TrainingConfig) -> tuple[PreparedDataset, Path | None, bool | None]:
+def _prepare_dataset(args: argparse.Namespace, config: Mot17TrainingConfig) -> tuple[PreparedDataset, Path | None, bool | None, dict[str, Any] | None]:
     pseudo_cache_dir = None
     pseudo_cache_hit = None
     if args.mode == "supervised":
         output_dir = config.prepared_dataset_root / "supervised"
-        prepared = prepare_mot17_dataset(config, output_dir, mode="supervised")
-        return prepared, pseudo_cache_dir, pseudo_cache_hit
+        prepared = prepare_mot17_dataset(config, output_dir, mode="supervised", max_frames_per_sequence=args.max_frames_per_sequence)
+        return prepared, pseudo_cache_dir, pseudo_cache_hit, None
 
     from ultralytics import YOLO
 
     train_images = tuple(
-        sorted(
-            (config.dataset_root / sequence / "img1").glob("*.jpg")
-        )
+        tuple(sorted((config.dataset_root / sequence / "img1").glob("*.jpg"))[:args.max_frames_per_sequence])
+        if args.max_frames_per_sequence is not None
+        else tuple(sorted((config.dataset_root / sequence / "img1").glob("*.jpg")))
         for sequence in config.train_sequences
     )
     flattened_train_images = tuple(path for group in train_images for path in group)
     teacher = YOLO(args.teacher_weights)
-    pseudo_labels, pseudo_cache_dir, pseudo_cache_hit = generate_pseudo_labels(
+    teacher_path = getattr(teacher, "ckpt_path", None)
+    teacher_metadata = _weight_metadata(args.teacher_weights, teacher_path)
+    pseudo_labels, pseudo_cache_dir, pseudo_cache_hit, pseudo_stats = generate_pseudo_labels(
         model=teacher,
         train_images=flattened_train_images,
-        teacher_weights=args.teacher_weights,
+        teacher_weights=(str(Path(teacher_path).resolve()) if teacher_path and Path(teacher_path).is_file() else args.teacher_weights),
         confidence_threshold=args.teacher_confidence,
         cache_root=args.pseudo_label_cache,
+        train_sequences=config.train_sequences,
     )
     dataset_key = pseudo_cache_dir.name
     output_dir = config.prepared_dataset_root / f"teacher_{dataset_key}"
     prepared = prepare_mot17_dataset(
-        config, output_dir, mode="teacher", pseudo_labels=pseudo_labels
+        config, output_dir, mode="teacher", pseudo_labels=pseudo_labels,
+        max_frames_per_sequence=args.max_frames_per_sequence,
     )
     del teacher
-    return prepared, pseudo_cache_dir, pseudo_cache_hit
+    teacher_metadata.update({"pseudo_label_stats": pseudo_stats})
+    return prepared, pseudo_cache_dir, pseudo_cache_hit, teacher_metadata
+
+
+def _weight_metadata(value: str, resolved_path: str | Path | None = None) -> dict[str, Any]:
+    path = Path(resolved_path or value).expanduser()
+    metadata: dict[str, Any] = {"signature": value, "resolved_path": str(path.resolve()) if path.is_file() else None, "sha256": None}
+    if path.is_file():
+        digest = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        metadata["sha256"] = digest.hexdigest()
+    return metadata
 
 
 def _run_training(args: argparse.Namespace) -> Path:
@@ -189,7 +212,10 @@ def _run_training(args: argparse.Namespace) -> Path:
     else:
         config = _override_config(args)
         _set_seed(args.seed)
-        prepared, pseudo_cache_dir, pseudo_cache_hit = _prepare_dataset(args, config)
+        prepared, pseudo_cache_dir, pseudo_cache_hit, resolved_teacher_metadata = _prepare_dataset(args, config)
+        if args.prepare_only:
+            LOGGER.info("Prepared dataset: %s (%s)", prepared.root, prepared.stats)
+            return prepared.root
         experiment_id = make_experiment_id(
             args.mode, args.student_weights,
             args.teacher_weights if args.mode == "teacher" else None,
@@ -198,7 +224,7 @@ def _run_training(args: argparse.Namespace) -> Path:
         experiment_dir.mkdir(parents=True, exist_ok=False)
         teacher_metadata = (
             {
-                "weights": args.teacher_weights,
+                **(resolved_teacher_metadata or {"weights": args.teacher_weights}),
                 "confidence_threshold": args.teacher_confidence,
                 "pseudo_label_cache": str(pseudo_cache_dir.resolve()),
                 "pseudo_label_cache_hit": pseudo_cache_hit,
@@ -230,6 +256,9 @@ def _run_training(args: argparse.Namespace) -> Path:
         from ultralytics import YOLO
 
         model = YOLO(args.student_weights)
+        student_weight_metadata = _weight_metadata(args.student_weights, getattr(model, "ckpt_path", None))
+        manifest["student"]["initial_weights_metadata"] = student_weight_metadata
+        save_experiment_manifest(manifest_path, manifest)
         kwargs = {
             "data": str(prepared.yaml_path),
             "epochs": args.epochs,
@@ -268,6 +297,8 @@ def _run_training(args: argparse.Namespace) -> Path:
         )
 
     manifest["student"]["output_weights"] = str(best_weights.resolve())
+    manifest["student"]["best_weights"] = _weight_metadata(str(best_weights), best_weights)
+    manifest["student"]["last_weights"] = _weight_metadata(str(last_weights), last_weights)
     manifest["training"]["ultralytics_run_dir"] = str(run_dir)
     results_csv = run_dir / "results.csv"
     if results_csv.is_file():

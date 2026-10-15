@@ -183,3 +183,53 @@ IDs are only used as temporary tracking identifiers inside benchmark sequences.
 ## Status
 
 Work in progress.
+
+## MOT17 training and evaluation preflight
+
+The split in `configs/mot17_training_split.json` is shared by training, the dataset audit, and evaluation. Supervised training currently uses marked class-1 pedestrian boxes without a visibility cutoff and skips a whole frame when that frame contains an excluded annotation. The audit reports the lost frames and pedestrian boxes before training; it never edits the split or this policy. Review its dropped-frame percentage before training.
+
+Install dependencies and run the tests from the repository root:
+
+```powershell
+python -m pip install -r requirements-training.txt -r requirements-test.txt -r requirements-analysis.txt
+python -m pytest
+```
+
+Audit the local MOT17 copy and prepare a small supervised dataset without training:
+
+```powershell
+python -m src.training.inspect_dataset --split-config configs/mot17_training_split.json
+python -m src.training.train_detector --mode supervised --split-config configs/mot17_training_split.json --prepare-only --max-frames-per-sequence 8
+```
+
+Run one-epoch smoke tests on up to eight frames per sequence. The teacher run generates pseudo-labels for the train frames and records their count and confidence statistics in its experiment manifest.
+
+```powershell
+python -m src.training.train_detector --mode supervised --split-config configs/mot17_training_split.json --epochs 1 --max-frames-per-sequence 8 --batch 2 --workers 0 --device 0
+python -m src.training.train_detector --mode teacher --teacher-weights yolo26m.pt --teacher-confidence 0.25 --split-config configs/mot17_training_split.json --epochs 1 --max-frames-per-sequence 8 --batch 2 --workers 0 --device 0
+```
+
+Each run prints its `results/training/<experiment_id>` directory. Confirm that `experiment.json` and `weights/best.pt` plus `weights/last.pt` exist there. Use those paths for one joint, same-frame validation evaluation; this example uses eight frames per validation sequence and the shared default threshold sweep:
+
+```powershell
+Get-ChildItem results/training -Filter experiment.json -Recurse | ForEach-Object { $d = $_.Directory.FullName; [pscustomobject]@{ Experiment = $_.Directory.Name; Manifest = $_.Exists; Best = Test-Path (Join-Path $d 'weights/best.pt'); Last = Test-Path (Join-Path $d 'weights/last.pt') } } | Format-Table
+```
+
+```powershell
+python -m src.evaluation.evaluate_detectors --split-config configs/mot17_training_split.json --partition validation --max-frames 8 --model "YOLO26n-baseline=yolo26n.pt" --model "YOLO26n-supervised=results/training/<supervised-id>/weights/best.pt" --model "YOLO26n-teacher=results/training/<teacher-id>/weights/best.pt" --model "Teacher-original=yolo26m.pt" --evaluation-name preflight_comparison --skip-estimate
+python -m src.analysis.plot_evaluation --evaluation results/evaluation/preflight_comparison.json
+```
+
+The evaluation writes a stable JSON under `results/evaluation/` with split, partition, sequence, model, weight signature/hash, threshold, aggregate, and per-sequence data. Plotting reads only that JSON. Training curves read the existing Ultralytics `results.csv` referenced by each manifest:
+
+```powershell
+python -m src.analysis.plot_evaluation --training-manifest results/training/<experiment-id>/experiment.json
+```
+
+For operational speed, benchmark a detector directly at each deployment confidence threshold. This times `predict()` at that confidence, after warmup and CUDA synchronization, and excludes frame decoding and matching; it is separate from the low-floor quality threshold sweep:
+
+```powershell
+python -m src.evaluation.benchmark_detector_speed --split-config configs/mot17_training_split.json --partition validation --max-frames 100 --warmup 5 --model "student=results/training/<experiment-id>/weights/best.pt" --confidence-threshold 0.3 --confidence-threshold 0.5 --output results/evaluation/speed.json
+```
+
+The commands above are smoke tests only. For full supervised training, omit `--max-frames-per-sequence` and set the desired epoch count. For teacher training, keep the same split and confidence selected for the experiment.

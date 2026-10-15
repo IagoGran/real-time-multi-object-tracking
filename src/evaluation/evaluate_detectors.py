@@ -1,6 +1,12 @@
 import argparse
+from datetime import datetime, timezone
+import hashlib
+import importlib.metadata
+import json
 from pathlib import Path
 import logging
+import subprocess
+import uuid
 from typing import Callable
 
 import torch
@@ -25,7 +31,10 @@ from src.evaluation.mot17_dataset import (
     DEFAULT_SEQUENCE_PATH,
     DEFAULT_TRAIN_PATH,
     load_sequences,
+    load_sequence,
 )
+from src.evaluation.evaluation_results import build_evaluation_result, save_evaluation_result
+from src.training.training_config import DEFAULT_SPLIT_CONFIG, load_training_config
 
 
 CLASS_NAMES = ["person"]
@@ -120,6 +129,12 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_SEQUENCE_PATH,
         help="Single MOT17 sequence to evaluate.",
     )
+
+    parser.add_argument("--split-config", type=Path, help="Training split JSON; evaluates the selected partition.")
+    parser.add_argument("--partition", choices=("train", "validation"), help="Required with --split-config.")
+    parser.add_argument("--model", action="append", default=[], metavar="NAME=WEIGHTS", help="Model to compare; repeat for a shared evaluation run.")
+    parser.add_argument("--evaluation-name", default=None, help="Name for the stable public evaluation JSON.")
+    parser.add_argument("--evaluation-output", type=Path, help="Public evaluation JSON path (default results/evaluation/<name>.json).")
 
     parser.add_argument(
         "--all-train",
@@ -263,7 +278,60 @@ def _parse_args() -> argparse.Namespace:
             "with --all-train."
         )
 
+    if bool(args.split_config) != bool(args.partition):
+        parser.error("--split-config and --partition must be provided together.")
+    if args.split_config and (args.all_train or args.sequence != DEFAULT_SEQUENCE_PATH):
+        parser.error("--split-config cannot be combined with --all-train or --sequence.")
+
     return args
+
+
+def _models_from_args(specifications: list[str]) -> list[ModelSpec]:
+    if not specifications:
+        return _models_to_compare()
+    models = []
+    names = set()
+    for item in specifications:
+        if "=" not in item:
+            raise ValueError(f"Invalid --model {item!r}; expected NAME=WEIGHTS")
+        name, weights = item.split("=", 1)
+        if not name.strip() or not weights.strip() or name in names:
+            raise ValueError(f"Invalid or duplicate model specification: {item!r}")
+        names.add(name)
+        signature = weights.strip()
+        if signature.startswith("torchvision:"):
+            factory = lambda: FasterRCNNDetector(CLASS_NAMES)
+        else:
+            factory = lambda signature=signature: YoloDetector(signature, CLASS_NAMES)
+        models.append(ModelSpec(name.strip(), signature, factory))
+    return models
+
+
+def _sha256(path_text: str) -> str | None:
+    path = Path(path_text).expanduser()
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_commit() -> str | None:
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, timeout=3).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def load_split_partition(split_config: Path, partition: str, max_frames: int | None = None):
+    """Load exactly the configured sequences for one training split partition."""
+    if partition not in {"train", "validation"}:
+        raise ValueError("partition must be 'train' or 'validation'")
+    config = load_training_config(split_config)
+    names = config.train_sequences if partition == "train" else config.validation_sequences
+    return config, [load_sequence(config.dataset_root / name, max_frames=max_frames) for name in names]
 
 
 def confidence_thresholds(
@@ -460,16 +528,18 @@ def main() -> None:
     )
 
     try:
-        sequences = load_sequences(
-            sequence_path=args.sequence,
-            all_train=args.all_train,
-            max_frames=args.max_frames,
-            train_path=DEFAULT_TRAIN_PATH,
-        )
+        split_config = None
+        partition = None
+        if args.split_config:
+            partition = args.partition
+            split_config, sequences = load_split_partition(args.split_config, partition, args.max_frames)
+        else:
+            sequences = load_sequences(
+                sequence_path=args.sequence, all_train=args.all_train,
+                max_frames=args.max_frames, train_path=DEFAULT_TRAIN_PATH,
+            )
 
-        models = (
-            _models_to_compare()
-        )
+        models = _models_from_args(args.model)
 
         thresholds = (
             confidence_thresholds(
@@ -563,6 +633,7 @@ def main() -> None:
         #
         # -----------------------------------------------------------
 
+        evaluation_started = datetime.now(timezone.utc).isoformat()
         results_by_threshold = (
             run_benchmark(
                 models=models,
@@ -589,6 +660,56 @@ def main() -> None:
                 results_by_threshold
             )
         )
+
+        if checkpoint.get("status") == "completed":
+            completed_at = datetime.now(timezone.utc).isoformat()
+            evaluation_name = args.evaluation_name or f"evaluation_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            evaluation_id = f"{evaluation_name}_{uuid.uuid4().hex[:8]}"
+            model_metadata = {
+                model.name: {
+                    "signature": model.signature,
+                    "weights_path": str(Path(model.signature).expanduser().resolve()) if Path(model.signature).expanduser().is_file() else None,
+                    "weights_sha256": _sha256(model.signature),
+                }
+                for model in models
+            }
+            aggregates = {
+                threshold: checkpoint.get("aggregates", {}).get(f"{threshold:.2f}", {})
+                for threshold in thresholds
+            }
+            per_sequence = {
+                threshold: {
+                    model.name: {
+                        sequence.name: checkpoint["results"].get(model.name, {}).get(sequence.name, {}).get(f"{threshold:.2f}", {})
+                        for sequence in sequences
+                    }
+                    for model in models
+                }
+                for threshold in thresholds
+            }
+            try:
+                ultralytics_version = importlib.metadata.version("ultralytics")
+            except importlib.metadata.PackageNotFoundError:
+                ultralytics_version = None
+            result = build_evaluation_result(
+                evaluation_id=evaluation_id,
+                evaluation_name=evaluation_name,
+                git_commit=_git_commit(),
+                dataset={"name": "MOT17", "root": str(sequences[0].path.parent.resolve()), "sequences": [s.name for s in sequences], "max_frames_per_sequence": args.max_frames},
+                split={"config": str(args.split_config.resolve()), "name": split_config.name, "train_sequences": list(split_config.train_sequences), "validation_sequences": list(split_config.validation_sequences)} if split_config else None,
+                partition=partition,
+                models=model_metadata,
+                thresholds=thresholds,
+                match_iou_threshold=args.match_iou_threshold,
+                aggregate_metrics=aggregates,
+                per_sequence_metrics=per_sequence,
+                started_at=evaluation_started,
+                completed_at=completed_at,
+            )
+            result["environment"] = {"ultralytics": ultralytics_version, "torch": torch.__version__}
+            result_path = args.evaluation_output or Path("results/evaluation") / f"{evaluation_name}.json"
+            save_evaluation_result(result_path, result)
+            LOGGER.info("Stable evaluation JSON: %s", result_path)
 
     except Exception:
         LOGGER.exception(
