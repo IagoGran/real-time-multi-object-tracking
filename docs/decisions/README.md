@@ -38,6 +38,7 @@ Statuses used in this project:
 | [ADR-013](013-use-pseudo-labeling-before-true-distillation.md) | Test teacher pseudo-labeling before true knowledge distillation | Proposed | 2026-10 |
 | [ADR-014](014-keep-supervised-and-teacher-training-separate.md) | Keep supervised and teacher training as separate experiments | Proposed | 2026-10 |
 | [ADR-015](015-separate-final-evaluation-json-from-checkpoint.md) | Separate final evaluation JSON from operational checkpoints | Proposed | 2026-10 |
+| [ADR-016](016-retain-mot17-frames-and-label-target-class-only.md) | Retain MOT17 frames and label only target-class GT | Accepted | 2026-10 |
 
 ## Reading the log
 

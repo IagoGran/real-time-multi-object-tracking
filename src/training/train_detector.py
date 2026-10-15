@@ -9,8 +9,16 @@ import subprocess
 import sys
 from typing import Any
 
-from src.training.mot17_training_dataset import PreparedDataset, prepare_mot17_dataset
-from src.training.pseudo_labels import generate_pseudo_labels
+from src.training.mot17_training_dataset import (
+    PREPARATION_POLICY_VERSION,
+    PreparedDataset,
+    prepare_mot17_dataset,
+)
+from src.training.pseudo_labels import (
+    TEACHER_LABEL_POLICY_DESCRIPTION,
+    TEACHER_LABEL_POLICY_VERSION,
+    generate_pseudo_labels,
+)
 from src.training.training_config import (
     DEFAULT_SPLIT_CONFIG,
     Mot17TrainingConfig,
@@ -117,7 +125,7 @@ def _resolve_training_run(model: Any, experiment_dir: Path) -> Path:
     return Path(save_dir).resolve() if save_dir else experiment_dir.resolve()
 
 
-def _evaluate_weights(weights: Path, experiment_id: str, mode: str) -> None:
+def _evaluate_weights(weights: Path, experiment_id: str, mode: str, split_config: Path) -> None:
     model_name = f"YOLO26n-{mode}"
     subprocess.run(
         [
@@ -128,6 +136,10 @@ def _evaluate_weights(weights: Path, experiment_id: str, mode: str) -> None:
             f"{model_name}={weights.resolve()}",
             "--evaluation-name",
             experiment_id,
+            "--split-config",
+            str(split_config),
+            "--partition",
+            "validation",
         ],
         check=True,
     )
@@ -137,7 +149,7 @@ def _prepare_dataset(args: argparse.Namespace, config: Mot17TrainingConfig) -> t
     pseudo_cache_dir = None
     pseudo_cache_hit = None
     if args.mode == "supervised":
-        output_dir = config.prepared_dataset_root / "supervised"
+        output_dir = config.prepared_dataset_root / f"supervised_{PREPARATION_POLICY_VERSION}"
         prepared = prepare_mot17_dataset(config, output_dir, mode="supervised", max_frames_per_sequence=args.max_frames_per_sequence)
         return prepared, pseudo_cache_dir, pseudo_cache_hit, None
 
@@ -160,9 +172,10 @@ def _prepare_dataset(args: argparse.Namespace, config: Mot17TrainingConfig) -> t
         confidence_threshold=args.teacher_confidence,
         cache_root=args.pseudo_label_cache,
         train_sequences=config.train_sequences,
+        preparation_policy_version=PREPARATION_POLICY_VERSION,
     )
     dataset_key = pseudo_cache_dir.name
-    output_dir = config.prepared_dataset_root / f"teacher_{dataset_key}"
+    output_dir = config.prepared_dataset_root / f"teacher_{dataset_key}_{PREPARATION_POLICY_VERSION}"
     prepared = prepare_mot17_dataset(
         config, output_dir, mode="teacher", pseudo_labels=pseudo_labels,
         max_frames_per_sequence=args.max_frames_per_sequence,
@@ -211,9 +224,17 @@ def _run_training(args: argparse.Namespace) -> Path:
             raise
     else:
         config = _override_config(args)
-        _set_seed(args.seed)
+        if not (args.prepare_only and args.mode == "supervised"):
+            _set_seed(args.seed)
         prepared, pseudo_cache_dir, pseudo_cache_hit, resolved_teacher_metadata = _prepare_dataset(args, config)
         if args.prepare_only:
+            if args.mode == "supervised" and args.max_frames_per_sequence is None:
+                from src.training.inspect_dataset import audit_dataset, assert_preparation_matches_audit
+
+                source_audit = audit_dataset(args.split_config, dataset_root=config.dataset_root)
+                prepared_manifest = json.loads((prepared.root / "dataset-manifest.json").read_text(encoding="utf-8"))
+                assert_preparation_matches_audit(source_audit, prepared_manifest)
+                LOGGER.info("Prepared dataset matches source audit.")
             LOGGER.info("Prepared dataset: %s (%s)", prepared.root, prepared.stats)
             return prepared.root
         experiment_id = make_experiment_id(
@@ -228,6 +249,8 @@ def _run_training(args: argparse.Namespace) -> Path:
                 "confidence_threshold": args.teacher_confidence,
                 "pseudo_label_cache": str(pseudo_cache_dir.resolve()),
                 "pseudo_label_cache_hit": pseudo_cache_hit,
+                "teacher_label_policy_version": TEACHER_LABEL_POLICY_VERSION,
+                "teacher_label_policy": TEACHER_LABEL_POLICY_DESCRIPTION,
             }
             if args.mode == "teacher"
             else None
@@ -245,7 +268,8 @@ def _run_training(args: argparse.Namespace) -> Path:
                 "split_config": str(args.split_config.resolve()),
                 "train_sequences": list(config.train_sequences),
                 "validation_sequences": list(config.validation_sequences),
-                "ignored_frame_policy": config.ignored_frame_policy,
+                "preparation_policy": config.preparation_policy,
+                "preparation_policy_version": PREPARATION_POLICY_VERSION,
                 "preparation_stats": prepared.stats,
             },
             training=_training_parameters(args, prepared.yaml_path),
@@ -309,7 +333,7 @@ def _run_training(args: argparse.Namespace) -> Path:
     LOGGER.info("Training complete: %s", experiment_dir)
     LOGGER.info("Best weights: %s", best_weights)
     if args.evaluate_after_training:
-        _evaluate_weights(best_weights, manifest["experiment_id"], args.mode)
+        _evaluate_weights(best_weights, manifest["experiment_id"], args.mode, args.split_config)
     return best_weights
 
 

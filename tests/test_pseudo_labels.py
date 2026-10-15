@@ -65,3 +65,4 @@ def test_cache_signature_changes_with_teacher_confidence_and_training_split(tmp_
     assert base != _cache_signature("teacher.pt", 0.5, [image], ["MOT17-02-FRCNN"], "test-version")
     assert base != _cache_signature("teacher.pt", 0.25, [image], ["MOT17-05-FRCNN"], "test-version")
     assert base != _cache_signature("teacher.pt", 0.25, [image], ["MOT17-02-FRCNN"], "other-version")
+    assert base != _cache_signature("teacher.pt", 0.25, [image], ["MOT17-02-FRCNN"], "test-version", "other-preparation-policy")

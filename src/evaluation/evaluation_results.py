@@ -83,6 +83,12 @@ def build_evaluation_result(
         "models": models,
         "thresholds": thresholds,
         "match_iou_threshold": match_iou_threshold,
+        "metric_protocol": {
+            "target_ground_truth": "MOT annotations with mark=1 and class=1 only",
+            "ignored_regions_applied": False,
+            "unmatched_prediction_handling": "Every prediction unmatched to target class-1 GT is counted as a false positive, including predictions overlapping distractor classes or occluders.",
+            "equivalent_to_official_mot17_metrics": False,
+        },
         "timing_semantics": {
             "fps_and_inference_ms": "quality-sweep inference timing at the detector's configured low inference floor; not operational-confidence deployment FPS",
             "operational_speed_tool": "src.evaluation.benchmark_detector_speed",

@@ -4,6 +4,16 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from src.training.mot17_training_dataset import PREPARATION_POLICY_VERSION
+
+
+TEACHER_LABEL_POLICY_VERSION = "raw_teacher_person_predictions_at_threshold_v1"
+TEACHER_LABEL_POLICY_DESCRIPTION = (
+    "Keep every teacher person detection at or above the confidence threshold. "
+    "Do not suppress detections by overlap with MOT GT classes or occluders. "
+    "Teacher boxes on ambiguous objects can therefore become noisy pseudo-labels."
+)
+
 
 def _as_list(values: Any) -> list[Any]:
     if hasattr(values, "tolist"):
@@ -25,6 +35,7 @@ def _cache_signature(
     train_images: Iterable[Path],
     train_sequences: Iterable[str] = (),
     detector_version: str | None = None,
+    preparation_policy_version: str = PREPARATION_POLICY_VERSION,
 ) -> str:
     weight_path = Path(teacher_weights)
     weight_info: dict[str, Any] = {"value": teacher_weights}
@@ -45,6 +56,8 @@ def _cache_signature(
         "teacher": weight_info,
         "confidence_threshold": confidence_threshold,
         "train_sequences": list(train_sequences),
+        "preparation_policy_version": preparation_policy_version,
+        "teacher_label_policy_version": TEACHER_LABEL_POLICY_VERSION,
         "detector": {"ultralytics_version": detector_version, "predict_confidence_floor": min(0.001, confidence_threshold), "class": "person"},
         "images": [
             {
@@ -66,6 +79,7 @@ def generate_pseudo_labels(
     confidence_threshold: float,
     cache_root: Path,
     train_sequences: Iterable[str] = (),
+    preparation_policy_version: str = PREPARATION_POLICY_VERSION,
 ) -> tuple[dict[str, list[tuple[float, float, float, float]]], Path, bool, dict[str, Any]]:
     """Run one streamed teacher prediction pass and cache accepted person boxes."""
     if not 0.0 <= confidence_threshold <= 1.0:
@@ -75,7 +89,8 @@ def generate_pseudo_labels(
         raise ValueError("Pseudo-label generation requires training images.")
 
     sequence_names = tuple(train_sequences)
-    signature = _cache_signature(teacher_weights, confidence_threshold, images, sequence_names)
+    signature = _cache_signature(teacher_weights, confidence_threshold, images, sequence_names,
+                                 preparation_policy_version=preparation_policy_version)
     cache_dir = cache_root / signature
     labels_path = cache_dir / "labels.json"
     manifest_path = cache_dir / "manifest.json"
@@ -138,11 +153,14 @@ def generate_pseudo_labels(
     manifest_path.write_text(
         json.dumps(
             {
-                "format_version": 1,
+                "format_version": 2,
                 "teacher_weights": teacher_weights,
                 "confidence_threshold": confidence_threshold,
                 "image_count": len(images),
                 "train_sequences": list(sequence_names),
+                "preparation_policy_version": preparation_policy_version,
+                "teacher_label_policy_version": TEACHER_LABEL_POLICY_VERSION,
+                "teacher_label_policy": TEACHER_LABEL_POLICY_DESCRIPTION,
                 "stats": stats,
                 "signature": signature,
             },

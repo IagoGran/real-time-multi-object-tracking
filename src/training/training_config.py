@@ -5,7 +5,7 @@ from typing import Any
 
 
 DEFAULT_SPLIT_CONFIG = Path("configs/mot17_training_split.json")
-SUPPORTED_IGNORED_FRAME_POLICY = "skip_frames_with_excluded_annotations"
+SUPPORTED_PREPARATION_POLICY = "all_frames_target_class_only_v2"
 
 
 @dataclass(frozen=True)
@@ -16,17 +16,17 @@ class Mot17TrainingConfig:
     variant: str
     train_sequences: tuple[str, ...]
     validation_sequences: tuple[str, ...]
-    ignored_frame_policy: str
-    format_version: int = 1
+    preparation_policy: str
+    format_version: int = 2
 
     def __post_init__(self) -> None:
         validate_sequence_split(self.train_sequences, self.validation_sequences)
         if self.variant != "FRCNN":
             raise ValueError("MOT17 training uses one FRCNN variant per scene.")
-        if self.ignored_frame_policy != SUPPORTED_IGNORED_FRAME_POLICY:
+        if self.preparation_policy != SUPPORTED_PREPARATION_POLICY:
             raise ValueError(
-                "Unsupported ignored_frame_policy: "
-                f"{self.ignored_frame_policy!r}."
+                "Unsupported preparation_policy: "
+                f"{self.preparation_policy!r}."
             )
 
 
@@ -60,8 +60,8 @@ def validate_sequence_split(
 def load_training_config(path: Path = DEFAULT_SPLIT_CONFIG) -> Mot17TrainingConfig:
     with path.open(encoding="utf-8") as config_file:
         raw: dict[str, Any] = json.load(config_file)
-    if raw.get("format_version") != 1:
-        raise ValueError("Unsupported MOT17 training split config version.")
+    if raw.get("format_version") != 2:
+        raise ValueError("Unsupported MOT17 training split config version; format 2 is required for the all-frames preparation policy.")
     config_root = path.resolve().parent.parent
 
     def configured_path(value: str) -> Path:
@@ -75,5 +75,5 @@ def load_training_config(path: Path = DEFAULT_SPLIT_CONFIG) -> Mot17TrainingConf
         variant=str(raw["variant"]),
         train_sequences=tuple(raw["train_sequences"]),
         validation_sequences=tuple(raw["validation_sequences"]),
-        ignored_frame_policy=str(raw["ignored_frame_policy"]),
+        preparation_policy=str(raw["preparation_policy"]),
     )

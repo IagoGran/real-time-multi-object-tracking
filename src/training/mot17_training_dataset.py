@@ -8,10 +8,17 @@ from typing import Iterable
 from src.training.training_config import Mot17TrainingConfig
 
 
+PREPARATION_POLICY_VERSION = "all_frames_target_class_only_v2"
+PREPARATION_POLICY_DESCRIPTION = (
+    "Retain every readable selected image. Only marked MOT class-1 boxes are "
+    "converted to pedestrian labels; other annotations are not positive labels "
+    "and are not handled with ignore regions."
+)
+
+
 @dataclass(frozen=True)
 class Mot17Annotations:
     boxes_by_frame: dict[int, list[tuple[float, float, float, float]]]
-    frames_with_excluded_annotations: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -25,7 +32,6 @@ class PreparedDataset:
 
 def read_mot17_annotations(gt_path: Path) -> Mot17Annotations:
     boxes: dict[int, list[tuple[float, float, float, float]]] = {}
-    excluded_frames: set[int] = set()
     with gt_path.open(newline="", encoding="utf-8") as gt_file:
         for row in csv.reader(gt_file):
             if len(row) < 9:
@@ -35,7 +41,6 @@ def read_mot17_annotations(gt_path: Path) -> Mot17Annotations:
             mark = int(row[6])
             class_id = int(row[7])
             if mark != 1 or class_id != 1 or width <= 0 or height <= 0:
-                excluded_frames.add(frame_number)
                 continue
             # MOT17 visibility is recorded in column 8. Evaluation currently
             # includes all marked pedestrian boxes, so training applies no new
@@ -43,7 +48,7 @@ def read_mot17_annotations(gt_path: Path) -> Mot17Annotations:
             boxes.setdefault(frame_number, []).append(
                 (x, y, x + width, y + height)
             )
-    return Mot17Annotations(boxes, frozenset(excluded_frames))
+    return Mot17Annotations(boxes)
 
 
 def mot17_box_to_yolo(
@@ -122,19 +127,19 @@ def prepare_mot17_dataset(
     if mode == "teacher" and pseudo_labels is None:
         raise ValueError("Teacher mode requires cached/generated pseudo-labels.")
 
-    import cv2
-
     root = output_dir.resolve()
     train_entries: list[Path] = []
     validation_entries: list[Path] = []
-    stats = {
-        "train_frames": 0,
-        "validation_frames": 0,
-        "train_frames_skipped_for_ignored_annotations": 0,
-        "validation_frames_skipped_for_ignored_annotations": 0,
-        "train_boxes": 0,
-        "validation_boxes": 0,
-    }
+    stats: dict[str, int] = {}
+
+    for sequence_name in (*config.train_sequences, *config.validation_sequences):
+        sequence_dir = _sequence_path(config, sequence_name)
+        if not (sequence_dir / "img1").is_dir():
+            raise FileNotFoundError(f"MOT17 images not found: {sequence_dir / 'img1'}")
+        if not (sequence_dir / "gt" / "gt.txt").is_file():
+            raise FileNotFoundError(f"MOT17 ground truth not found: {sequence_dir / 'gt' / 'gt.txt'}")
+
+    import cv2
 
     for split_name, sequence_names, entries in (
         ("train", config.train_sequences, train_entries),
@@ -156,13 +161,9 @@ def prepare_mot17_dataset(
             image_paths = sorted(image_source.glob("*.jpg"))
             if max_frames_per_sequence is not None:
                 image_paths = image_paths[:max_frames_per_sequence]
+            stats[f"{stats_prefix}_frames_original"] = stats.get(f"{stats_prefix}_frames_original", 0) + len(image_paths)
             for image_path in image_paths:
                 frame_number = int(image_path.stem)
-                if split_name == "val" or mode == "supervised":
-                    if frame_number in annotations.frames_with_excluded_annotations:
-                        stats[f"{stats_prefix}_frames_skipped_for_ignored_annotations"] += 1
-                        continue
-
                 staged_image = staged_dir / image_path.name
                 image = cv2.imread(str(image_path))
                 if image is None:
@@ -175,6 +176,7 @@ def prepare_mot17_dataset(
 
                 if split_name == "val" or mode == "supervised":
                     boxes = annotations.boxes_by_frame.get(frame_number, [])
+                    stats[f"{stats_prefix}_frames_with_target_gt"] = stats.get(f"{stats_prefix}_frames_with_target_gt", 0) + bool(boxes)
                     box_count = _write_yolo_labels(
                         label_path, boxes, (image_width, image_height)
                     )
@@ -186,8 +188,9 @@ def prepare_mot17_dataset(
                 # Keep the staged /images/ path so Ultralytics resolves the
                 # matching label under /labels/, even when images are symlinked.
                 entries.append(staged_image.absolute())
-                stats[f"{stats_prefix}_frames"] += 1
-                stats[f"{stats_prefix}_boxes"] += box_count
+                stats[f"{stats_prefix}_frames_retained"] = stats.get(f"{stats_prefix}_frames_retained", 0) + 1
+                stats[f"{stats_prefix}_frames_without_target_labels"] = stats.get(f"{stats_prefix}_frames_without_target_labels", 0) + (not box_count)
+                stats[f"{stats_prefix}_boxes"] = stats.get(f"{stats_prefix}_boxes", 0) + box_count
 
     if not train_entries or not validation_entries:
         raise RuntimeError("The configured split produced an empty train or validation set.")
@@ -208,11 +211,13 @@ def prepare_mot17_dataset(
         encoding="utf-8",
     )
     manifest = {
-        "format_version": 1,
+        "format_version": 2,
         "mode": mode,
+        "preparation_policy_version": PREPARATION_POLICY_VERSION,
+        "preparation_policy": PREPARATION_POLICY_DESCRIPTION,
         "train_sequences": list(config.train_sequences),
         "validation_sequences": list(config.validation_sequences),
-        "ignored_frame_policy": config.ignored_frame_policy,
+        "configured_preparation_policy": config.preparation_policy,
         "stats": stats,
     }
     (root / "dataset-manifest.json").write_text(

@@ -84,8 +84,8 @@ def test_aggregates_are_separate_for_each_confidence_threshold():
         }
     }
     _update_checkpoint_aggregates(checkpoint, [0.1, 0.2])
-    assert checkpoint["aggregates"]["0.10"]["model"]["mean_iou"] == 0.35
-    assert checkpoint["aggregates"]["0.20"]["model"]["mean_iou"] == 0.825
+    assert checkpoint["aggregates"]["0.10"]["model"]["mean_iou"] == pytest.approx(0.35)
+    assert checkpoint["aggregates"]["0.20"]["model"]["mean_iou"] == pytest.approx(0.825)
 
 
 def test_benchmark_runs_stub_detector_and_checkpoints_sequence(

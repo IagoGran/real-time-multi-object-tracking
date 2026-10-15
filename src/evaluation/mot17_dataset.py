@@ -24,7 +24,7 @@ class Mot17Sequence:
 
 
 def load_ground_truth(gt_path: Path) -> dict[int, list[Box]]:
-    """Load marked pedestrian boxes; ignored-region policy is unchanged."""
+    """Load only marked class-1 boxes; this is not MOT17 ignored-region handling."""
     ground_truth: dict[int, list[Box]] = {}
 
     with gt_path.open(newline="") as gt_file:

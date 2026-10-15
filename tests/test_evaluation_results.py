@@ -41,3 +41,5 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
     assert loaded["partition"] == "validation"
     assert loaded["git_commit"] == "abc123"
     assert loaded["models"]["student"]["weights_sha256"] == "abc123"
+    assert loaded["metric_protocol"]["ignored_regions_applied"] is False
+    assert loaded["metric_protocol"]["equivalent_to_official_mot17_metrics"] is False

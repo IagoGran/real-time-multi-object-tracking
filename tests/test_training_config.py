@@ -20,19 +20,27 @@ def test_default_split_is_explicit_and_has_no_sequence_overlap():
 
 def test_split_config_rejects_overlap(tmp_path):
     raw = {
-        "format_version": 1,
+        "format_version": 2,
         "name": "bad",
         "dataset_root": "data",
         "prepared_dataset_root": "prepared",
         "variant": "FRCNN",
         "train_sequences": ["MOT17-02-FRCNN"],
         "validation_sequences": ["MOT17-02-FRCNN"],
-        "ignored_frame_policy": "skip_frames_with_excluded_annotations",
+        "preparation_policy": "all_frames_target_class_only_v2",
     }
     path = tmp_path / "split.json"
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="leakage"):
         load_training_config(path)
+
+
+def test_split_rejects_two_variants_of_the_same_scene():
+    with pytest.raises(ValueError, match="exactly one MOT17 variant per scene"):
+        validate_sequence_split(
+            ["MOT17-02-FRCNN", "MOT17-02-ALT-FRCNN"],
+            ["MOT17-04-FRCNN"],
+        )
 
 
 def test_teacher_cli_records_confidence_and_requires_teacher_weights():

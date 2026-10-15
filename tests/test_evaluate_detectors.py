@@ -101,7 +101,7 @@ def test_split_partition_loads_exact_validation_sequences(tmp_path):
     (tmp_path / "configs").mkdir()
     config_path = tmp_path / "configs" / "split.json"
     config_path.write_text(
-        '{"format_version":1,"name":"fixture","dataset_root":"MOT17/train","prepared_dataset_root":"prepared","variant":"FRCNN","train_sequences":["MOT17-02-FRCNN"],"validation_sequences":["MOT17-04-FRCNN","MOT17-11-FRCNN"],"ignored_frame_policy":"skip_frames_with_excluded_annotations"}',
+        '{"format_version":2,"name":"fixture","dataset_root":"MOT17/train","prepared_dataset_root":"prepared","variant":"FRCNN","train_sequences":["MOT17-02-FRCNN"],"validation_sequences":["MOT17-04-FRCNN","MOT17-11-FRCNN"],"preparation_policy":"all_frames_target_class_only_v2"}',
         encoding="utf-8",
     )
     config, sequences = load_split_partition(config_path, "validation", max_frames=1)

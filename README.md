@@ -186,7 +186,11 @@ Work in progress.
 
 ## MOT17 training and evaluation preflight
 
-The split in `configs/mot17_training_split.json` is shared by training, the dataset audit, and evaluation. Supervised training currently uses marked class-1 pedestrian boxes without a visibility cutoff and skips a whole frame when that frame contains an excluded annotation. The audit reports the lost frames and pedestrian boxes before training; it never edits the split or this policy. Review its dropped-frame percentage before training.
+The split in `configs/mot17_training_split.json` is shared by training, the dataset audit, and evaluation. Preparation retains every readable selected frame, including frames without target pedestrians, and writes labels only for marked MOT class-1 boxes. Other MOT classes never become pedestrian labels. There is no ignore-region loss: ambiguous objects without target labels can be treated implicitly as background during supervised training. No custom loss or visual masking is applied.
+
+Teacher pseudo-labeling keeps all teacher `person` predictions above its confidence threshold without consulting MOT annotations. This avoids arbitrary overlap suppression, but predictions on ambiguous objects can enter the pseudo-labels. No teacher prediction is removed for overlap with occluder classes 9–11.
+
+The detector evaluator currently matches predictions only to marked class-1 GT. Every unmatched prediction counts as a false positive, including overlaps with distractor classes or occluders. Its metrics are project-specific and are not equivalent to official MOT17 evaluation. Use an official-protocol adapter as a separate future change before claiming official comparability.
 
 Install dependencies and run the tests from the repository root:
 
@@ -199,7 +203,7 @@ Audit the local MOT17 copy and prepare a small supervised dataset without traini
 
 ```powershell
 python -m src.training.inspect_dataset --split-config configs/mot17_training_split.json
-python -m src.training.train_detector --mode supervised --split-config configs/mot17_training_split.json --prepare-only --max-frames-per-sequence 8
+python -m src.training.train_detector --mode supervised --split-config configs/mot17_training_split.json --prepare-only
 ```
 
 Run one-epoch smoke tests on up to eight frames per sequence. The teacher run generates pseudo-labels for the train frames and records their count and confidence statistics in its experiment manifest.
