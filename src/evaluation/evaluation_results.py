@@ -52,6 +52,7 @@ def build_evaluation_result(
     git_commit: str | None = None,
     split: dict[str, Any] | None = None,
     partition: str | None = None,
+    inference_imgsz: int | None = None,
 ) -> dict[str, Any]:
     """Build the public result schema from already-computed benchmark metrics."""
     result_by_threshold = {
@@ -80,6 +81,14 @@ def build_evaluation_result(
         "dataset": dataset,
         "split": split,
         "partition": partition,
+        "inference_imgsz": inference_imgsz,
+        "inference_resolution": "native" if inference_imgsz is None else f"{inference_imgsz}px square",
+        "yolo_inference_protocol": {
+            "confidence_floor": 0.01,
+            "nms": None,
+            "iou": 0.7,
+            "max_det": 300,
+        },
         "models": models,
         "thresholds": thresholds,
         "match_iou_threshold": match_iou_threshold,

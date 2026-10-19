@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "split_config": "/mnt/d/Proyectos_personales/real-time-multi-object-tracking/configs/mot17_training_split.json",
+  "split_config": "/home/igran/proyectos/proyectos_personales/real-time-multi-object-tracking/configs/mot17_training_split.json",
   "dataset_root": "/home/igran/proyectos/proyectos_personales/real-time-multi-object-tracking/datasets/MOT17/train",
   "split": {
     "train": [

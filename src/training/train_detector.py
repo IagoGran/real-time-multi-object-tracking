@@ -1,4 +1,5 @@
 import argparse
+import csv
 from datetime import datetime
 import hashlib
 import json
@@ -36,31 +37,73 @@ LOGGER = logging.getLogger("src.training")
 DEFAULT_EXPERIMENTS_ROOT = Path("results/training")
 DEFAULT_PSEUDO_LABEL_CACHE = Path("datasets/MOT17_pseudo_labels")
 
+# Usual training run settings. Edit these values for the normal workflow;
+# command-line options can still override them for one-off runs.
+TRAINING_CONFIG: dict[str, Any] = {
+    "mode": "supervised",  # "supervised" or "teacher"
+    "student_weights": "yolo26n.pt",
+    "teacher_weights": None,  # Set a checkpoint here when mode="teacher".
+    "teacher_confidence": 0.25,
+    "split_config": DEFAULT_SPLIT_CONFIG,
+    "dataset_root": None,  # None uses the root in split_config.
+    "prepared_dataset_root": None,  # None uses the root in split_config.
+    "output_root": DEFAULT_EXPERIMENTS_ROOT,
+    "pseudo_label_cache": DEFAULT_PSEUDO_LABEL_CACHE,
+    "epochs": 50,
+    "batch": 16,
+    "imgsz": 640,
+    "multi_scale": 0.0,
+    "freeze": None,
+    "experiment_label": None,
+    "lr0": 0.001,
+    "optimizer": "AdamW",
+    "patience": 20,
+    "workers": 8,
+    "seed": 0,
+    "device": None,  # None lets Ultralytics choose automatically.
+    "evaluate_after_training": False,
+    "resume_from": None,
+    "max_frames_per_sequence": None,  # Set a small number for smoke runs.
+    "prepare_only": False,
+}
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train YOLO26n on MOT17.")
-    parser.add_argument("--mode", choices=("supervised", "teacher"), required=True)
-    parser.add_argument("--student-weights", default="yolo26n.pt")
-    parser.add_argument("--teacher-weights")
-    parser.add_argument("--teacher-confidence", type=float, default=0.25)
-    parser.add_argument("--split-config", type=Path, default=DEFAULT_SPLIT_CONFIG)
-    parser.add_argument("--dataset-root", type=Path)
-    parser.add_argument("--prepared-dataset-root", type=Path)
-    parser.add_argument("--output-root", type=Path, default=DEFAULT_EXPERIMENTS_ROOT)
-    parser.add_argument("--pseudo-label-cache", type=Path, default=DEFAULT_PSEUDO_LABEL_CACHE)
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--lr0", type=float, default=0.001)
-    parser.add_argument("--optimizer", default="AdamW")
-    parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--device", default=None, help="Ultralytics device, e.g. 0, cpu; default selects automatically.")
-    parser.add_argument("--evaluate-after-training", action="store_true")
-    parser.add_argument("--resume-from", type=Path, help="Resume Ultralytics training from an experiment's last.pt.")
-    parser.add_argument("--max-frames-per-sequence", type=int, help="Limit every sequence for smoke tests/preflight.")
-    parser.add_argument("--prepare-only", action="store_true", help="Prepare the configured dataset and exit without training.")
+    parser.add_argument("--mode", choices=("supervised", "teacher"), default=TRAINING_CONFIG["mode"])
+    parser.add_argument("--student-weights", default=TRAINING_CONFIG["student_weights"])
+    parser.add_argument("--teacher-weights", default=TRAINING_CONFIG["teacher_weights"])
+    parser.add_argument("--teacher-confidence", type=float, default=TRAINING_CONFIG["teacher_confidence"])
+    parser.add_argument("--split-config", type=Path, default=TRAINING_CONFIG["split_config"])
+    parser.add_argument("--dataset-root", type=Path, default=TRAINING_CONFIG["dataset_root"])
+    parser.add_argument("--prepared-dataset-root", type=Path, default=TRAINING_CONFIG["prepared_dataset_root"])
+    parser.add_argument("--output-root", type=Path, default=TRAINING_CONFIG["output_root"])
+    parser.add_argument("--pseudo-label-cache", type=Path, default=TRAINING_CONFIG["pseudo_label_cache"])
+    parser.add_argument("--epochs", type=int, default=TRAINING_CONFIG["epochs"])
+    parser.add_argument("--batch", type=int, default=TRAINING_CONFIG["batch"])
+    parser.add_argument("--imgsz", type=int, default=TRAINING_CONFIG["imgsz"])
+    parser.add_argument("--multi-scale", type=float, default=TRAINING_CONFIG["multi_scale"], help="Ultralytics multi-scale range as a fraction of imgsz (0 disables it).")
+    parser.add_argument("--freeze", type=int, default=TRAINING_CONFIG["freeze"], help="Freeze the first N Ultralytics model layers; omit to keep the existing behavior.")
+    parser.add_argument("--experiment-label", default=TRAINING_CONFIG["experiment_label"], help="Optional readable label included in the unique experiment directory name.")
+    parser.add_argument("--lr0", type=float, default=TRAINING_CONFIG["lr0"])
+    parser.add_argument("--optimizer", default=TRAINING_CONFIG["optimizer"])
+    parser.add_argument("--patience", type=int, default=TRAINING_CONFIG["patience"])
+    parser.add_argument("--workers", type=int, default=TRAINING_CONFIG["workers"])
+    parser.add_argument("--seed", type=int, default=TRAINING_CONFIG["seed"])
+    parser.add_argument("--device", default=TRAINING_CONFIG["device"], help="Ultralytics device, e.g. 0, cpu; default selects automatically.")
+    parser.add_argument(
+        "--evaluate-after-training",
+        action=argparse.BooleanOptionalAction,
+        default=TRAINING_CONFIG["evaluate_after_training"],
+    )
+    parser.add_argument("--resume-from", type=Path, default=TRAINING_CONFIG["resume_from"], help="Resume Ultralytics training from an experiment's last.pt.")
+    parser.add_argument("--max-frames-per-sequence", type=int, default=TRAINING_CONFIG["max_frames_per_sequence"], help="Limit every sequence for smoke tests/preflight.")
+    parser.add_argument(
+        "--prepare-only",
+        action=argparse.BooleanOptionalAction,
+        default=TRAINING_CONFIG["prepare_only"],
+        help="Prepare the configured dataset and exit without training.",
+    )
     args = parser.parse_args(argv)
     if args.mode == "teacher" and not args.teacher_weights and not args.resume_from:
         parser.error("--teacher-weights is required with --mode teacher.")
@@ -70,6 +113,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--teacher-confidence must be between 0 and 1.")
     if args.epochs <= 0 or args.batch <= 0 or args.imgsz <= 0 or args.workers < 0 or args.patience < 0:
         parser.error("epochs, batch, and imgsz must be positive; workers and patience cannot be negative.")
+    if not 0.0 <= args.multi_scale <= 1.0:
+        parser.error("--multi-scale must be between 0 and 1 inclusive.")
+    if args.freeze is not None and args.freeze < 0:
+        parser.error("--freeze cannot be negative.")
+    if args.multi_scale > 0 and max(32, int(args.imgsz * (1.0 - args.multi_scale))) // 32 * 32 < 64:
+        parser.error("--imgsz and --multi-scale must keep the minimum training size at least 64 pixels (two YOLO strides).")
     if args.max_frames_per_sequence is not None and args.max_frames_per_sequence <= 0:
         parser.error("--max-frames-per-sequence must be positive.")
     return args
@@ -108,6 +157,9 @@ def _training_parameters(args: argparse.Namespace, data_yaml: Path) -> dict[str,
         "epochs": args.epochs,
         "batch": args.batch,
         "imgsz": args.imgsz,
+        "multi_scale": args.multi_scale,
+        "freeze": args.freeze,
+        "experiment_label": args.experiment_label,
         "lr0": args.lr0,
         "optimizer": args.optimizer,
         "patience": args.patience,
@@ -117,6 +169,30 @@ def _training_parameters(args: argparse.Namespace, data_yaml: Path) -> dict[str,
         "deterministic": True,
         "max_frames_per_sequence": args.max_frames_per_sequence,
     }
+
+
+def _ultralytics_training_kwargs(args: argparse.Namespace, data_yaml: Path, output_root: Path, experiment_id: str) -> dict[str, Any]:
+    kwargs = {
+        "data": str(data_yaml),
+        "epochs": args.epochs,
+        "batch": args.batch,
+        "imgsz": args.imgsz,
+        "multi_scale": args.multi_scale,
+        "lr0": args.lr0,
+        "optimizer": args.optimizer,
+        "patience": args.patience,
+        "workers": args.workers,
+        "seed": args.seed,
+        "deterministic": True,
+        "project": str(output_root.resolve()),
+        "name": experiment_id,
+        "exist_ok": True,
+    }
+    if args.freeze is not None:
+        kwargs["freeze"] = args.freeze
+    if args.device is not None:
+        kwargs["device"] = args.device
+    return kwargs
 
 
 def _resolve_training_run(model: Any, experiment_dir: Path) -> Path:
@@ -197,6 +273,147 @@ def _weight_metadata(value: str, resolved_path: str | Path | None = None) -> dic
     return metadata
 
 
+def _model_layers(model: Any) -> tuple[Any, list[Any], dict[str, Any]]:
+    detection_model = model if hasattr(model, "yaml") else getattr(model, "model", model)
+    layers = getattr(detection_model, "model", None)
+    yaml_config = getattr(detection_model, "yaml", {}) or {}
+    if layers is None or not hasattr(layers, "__len__") or not isinstance(yaml_config, dict):
+        raise ValueError("--freeze requires a loaded Ultralytics model with an indexed model and YAML architecture.")
+    return detection_model, list(layers), yaml_config
+
+
+def _validate_freeze_compatibility(model: Any, freeze: int | None) -> dict[str, Any] | None:
+    if freeze is None:
+        return None
+    _, layers, yaml_config = _model_layers(model)
+    if freeze > len(layers):
+        raise ValueError(f"--freeze {freeze} exceeds this model's {len(layers)} indexed layers.")
+    backbone = yaml_config.get("backbone")
+    if freeze == 11 and (not isinstance(backbone, list) or len(backbone) != 11):
+        raise ValueError(
+            "--freeze 11 is intended to freeze the complete YOLO26n backbone, but the loaded model's "
+            f"YAML declares {len(backbone) if isinstance(backbone, list) else 'no indexed'} backbone layers."
+        )
+    return {
+        "model_layers": len(layers),
+        "backbone_layers": len(backbone) if isinstance(backbone, list) else None,
+        "backbone_layer_indices": list(range(len(backbone))) if isinstance(backbone, list) else None,
+        "freeze": freeze,
+    }
+
+
+def _verify_freeze_state(trainer: Any, freeze: int, manifest: dict[str, Any], manifest_path: Path) -> None:
+    """Verify Ultralytics' post-setup requires_grad flags and optimizer groups."""
+    active_model = trainer.model
+    while hasattr(active_model, "module"):
+        active_model = active_model.module
+    _, layers, yaml_config = _model_layers(active_model)
+    parameters = dict(active_model.named_parameters())
+    optimizer_parameter_ids = {
+        id(parameter)
+        for group in trainer.optimizer.param_groups
+        for parameter in group["params"]
+    }
+    if not optimizer_parameter_ids:
+        raise RuntimeError("Ultralytics initialized an optimizer without parameters.")
+
+    layer_summary = []
+    trainable_by_layer: list[int] = []
+    for index, layer in enumerate(layers):
+        layer_parameters = list(layer.parameters())
+        total = sum(parameter.numel() for parameter in layer_parameters)
+        frozen = sum(parameter.numel() for parameter in layer_parameters if not parameter.requires_grad)
+        trainable = total - frozen
+        trainable_by_layer.append(trainable)
+        layer_summary.append({"index": index, "type": type(layer).__name__, "total": total, "frozen": frozen, "trainable": trainable})
+        if index < freeze and trainable:
+            raise RuntimeError(f"Ultralytics left parameters trainable in requested frozen layer {index}.")
+
+    missing_trainable = [name for name, parameter in parameters.items() if parameter.requires_grad and id(parameter) not in optimizer_parameter_ids]
+    frozen_parameters = {name: parameter for name, parameter in parameters.items() if not parameter.requires_grad}
+    frozen_with_gradients = [name for name, parameter in frozen_parameters.items() if parameter.grad is not None]
+    if missing_trainable or frozen_with_gradients:
+        raise RuntimeError(
+            "Freeze state does not match gradient setup "
+            f"(trainable parameters missing from optimizer={missing_trainable[:5]}, frozen parameters with gradients={frozen_with_gradients[:5]})."
+        )
+    total_count = sum(parameter.numel() for parameter in parameters.values())
+    frozen_count = sum(parameter.numel() for parameter in parameters.values() if not parameter.requires_grad)
+    trainable_count = total_count - frozen_count
+    if trainable_count == 0 or (freeze > 0 and frozen_count == 0):
+        raise RuntimeError("Freeze verification found an unexpected all-frozen or all-trainable model state.")
+    if sum(trainable_by_layer[freeze:]) == 0:
+        raise RuntimeError("Ultralytics left no parameters trainable after the requested frozen layers.")
+    backbone = yaml_config.get("backbone")
+    if freeze == 11 and isinstance(backbone, list) and len(backbone) == 11:
+        neck_trainable = sum(trainable_by_layer[freeze:-1])
+        head_trainable = trainable_by_layer[-1]
+        if neck_trainable == 0 or head_trainable == 0:
+            raise RuntimeError(
+                "YOLO26n backbone freeze verification expected trainable parameters in both the neck and detection head."
+            )
+
+    summary = {
+        "verified_after_ultralytics_setup": True,
+        "freeze": freeze,
+        "frozen_layer_indices": list(range(freeze)),
+        "layer_parameters": layer_summary,
+        "parameters": {"total": total_count, "frozen": frozen_count, "trainable": trainable_count},
+        "neck_trainable_parameters": sum(trainable_by_layer[freeze:-1]) if freeze == 11 else None,
+        "head_trainable_parameters": trainable_by_layer[-1] if freeze == 11 else None,
+        "optimizer_includes_frozen_parameters": sum(id(parameter) in optimizer_parameter_ids for parameter in frozen_parameters.values()),
+        "optimizer_includes_trainable_parameters": True,
+        "frozen_parameters_receive_gradients": False,
+        "parameters_unchanged_after_epoch": False,
+        "batchnorm_running_statistics_frozen": False,
+    }
+    trainer._codex_frozen_parameter_snapshot = {
+        name: parameter.detach().cpu().clone() for name, parameter in frozen_parameters.items()
+    }
+    manifest["training"]["freeze_verification"] = summary
+    save_experiment_manifest(manifest_path, manifest)
+    LOGGER.info("Freeze verification passed: %s", summary["parameters"])
+
+
+def _verify_frozen_parameters_unchanged(trainer: Any, manifest: dict[str, Any], manifest_path: Path) -> None:
+    """Check frozen tensor values after Ultralytics completes an optimizer epoch."""
+    import torch
+
+    active_model = trainer.model
+    while hasattr(active_model, "module"):
+        active_model = active_model.module
+    current_parameters = dict(active_model.named_parameters())
+    snapshots = trainer._codex_frozen_parameter_snapshot
+    changed = [
+        name for name, before in snapshots.items()
+        if name not in current_parameters
+        or not torch.equal(before, current_parameters[name].detach().cpu())
+    ]
+    if changed:
+        raise RuntimeError(f"Frozen parameters changed during optimizer training: {changed[:5]}.")
+    verification = manifest["training"]["freeze_verification"]
+    verification["parameters_unchanged_after_epoch"] = True
+    verification["verified_epochs"] = int(verification.get("verified_epochs", 0)) + 1
+    save_experiment_manifest(manifest_path, manifest)
+
+
+def _record_training_outcome(manifest: dict[str, Any], results_csv: Path, requested_epochs: int) -> None:
+    """Record Ultralytics' checkpoint selection metric and observed stop point."""
+    selected_metric = "metrics/mAP50-95(B)"
+    if results_csv.is_file():
+        with results_csv.open(newline="", encoding="utf-8-sig") as history_file:
+            rows = list(csv.DictReader(history_file))
+        valid_rows = [row for row in rows if row.get(selected_metric)]
+        if valid_rows:
+            best_row = max(valid_rows, key=lambda row: float(row[selected_metric]))
+            manifest["training"]["best_epoch"] = int(float(best_row["epoch"]))
+            manifest["training"]["best_checkpoint_selection_metric"] = selected_metric
+            manifest["training"]["best_checkpoint_selection_value"] = float(best_row[selected_metric])
+        if rows:
+            manifest["training"]["stopped_after_epoch"] = int(float(rows[-1]["epoch"]))
+            manifest["training"]["finish_reason"] = "early_stopping" if len(rows) < requested_epochs else "requested_epochs_completed"
+
+
 def _run_training(args: argparse.Namespace) -> Path:
     if args.resume_from:
         checkpoint = args.resume_from.resolve()
@@ -240,6 +457,7 @@ def _run_training(args: argparse.Namespace) -> Path:
         experiment_id = make_experiment_id(
             args.mode, args.student_weights,
             args.teacher_weights if args.mode == "teacher" else None,
+            args.experiment_label,
         )
         experiment_dir = args.output_root / experiment_id
         experiment_dir.mkdir(parents=True, exist_ok=False)
@@ -275,6 +493,8 @@ def _run_training(args: argparse.Namespace) -> Path:
             training=_training_parameters(args, prepared.yaml_path),
         )
         manifest_path = experiment_dir / "experiment.json"
+        if args.experiment_label:
+            manifest["training"]["experiment_label"] = args.experiment_label
         save_experiment_manifest(manifest_path, manifest)
 
         from ultralytics import YOLO
@@ -282,24 +502,20 @@ def _run_training(args: argparse.Namespace) -> Path:
         model = YOLO(args.student_weights)
         student_weight_metadata = _weight_metadata(args.student_weights, getattr(model, "ckpt_path", None))
         manifest["student"]["initial_weights_metadata"] = student_weight_metadata
+        architecture = _validate_freeze_compatibility(model.model, args.freeze)
+        if architecture is not None:
+            manifest["training"]["freeze_architecture"] = architecture
         save_experiment_manifest(manifest_path, manifest)
-        kwargs = {
-            "data": str(prepared.yaml_path),
-            "epochs": args.epochs,
-            "batch": args.batch,
-            "imgsz": args.imgsz,
-            "lr0": args.lr0,
-            "optimizer": args.optimizer,
-            "patience": args.patience,
-            "workers": args.workers,
-            "seed": args.seed,
-            "deterministic": True,
-            "project": str(args.output_root.resolve()),
-            "name": experiment_id,
-            "exist_ok": True,
-        }
-        if args.device is not None:
-            kwargs["device"] = args.device
+        kwargs = _ultralytics_training_kwargs(args, prepared.yaml_path, args.output_root, experiment_id)
+        if args.freeze is not None:
+            model.add_callback(
+                "on_pretrain_routine_end",
+                lambda trainer: _verify_freeze_state(trainer, args.freeze, manifest, manifest_path),
+            )
+            model.add_callback(
+                "on_train_epoch_end",
+                lambda trainer: _verify_frozen_parameters_unchanged(trainer, manifest, manifest_path),
+            )
         try:
             model.train(**kwargs)
         except Exception:
@@ -327,6 +543,7 @@ def _run_training(args: argparse.Namespace) -> Path:
     results_csv = run_dir / "results.csv"
     if results_csv.is_file():
         manifest["training"]["history"] = str(results_csv)
+    _record_training_outcome(manifest, results_csv, int(manifest["training"].get("epochs", args.epochs)))
     manifest["status"] = "completed"
     manifest["completed_at"] = utc_timestamp()
     save_experiment_manifest(manifest_path, manifest)

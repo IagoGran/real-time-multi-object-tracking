@@ -10,7 +10,14 @@ results/training/*/train_batch*.jpg
 results/training/*/val_batch*.jpg
 results/training/*/weights/
 results/training/*/events.out.tfevents.*
+results/dataset_audit/
+results/duplicate_diagnostics/
+results/duplicate_diagnostics_nms_false/
+results/training/
+results/evaluation/
+results/detector_benchmark.json
 *.tmp
+*.svg
 __pycache__/
 *.pt
 *.pth

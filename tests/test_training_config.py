@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from src.training.train_detector import _parse_args
+from src.training.train_detector import (
+    _parse_args,
+    _training_parameters,
+    _ultralytics_training_kwargs,
+    _validate_freeze_compatibility,
+    _verify_freeze_state,
+    _verify_frozen_parameters_unchanged,
+)
 from src.training.training_config import (
     DEFAULT_SPLIT_CONFIG,
     load_training_config,
@@ -59,3 +66,91 @@ def test_supervised_cli_has_configurable_training_defaults():
     assert args.epochs == 50
     assert args.batch == 16
     assert args.imgsz == 640
+    assert args.multi_scale == 0.0
+    assert args.freeze is None
+
+
+def test_multi_scale_parsing_and_range_validation():
+    args = _parse_args(["--multi-scale", "0.25"])
+    assert args.multi_scale == 0.25
+    with pytest.raises(SystemExit):
+        _parse_args(["--multi-scale", "-0.1"])
+    with pytest.raises(SystemExit):
+        _parse_args(["--imgsz", "64", "--multi-scale", "0.5"])
+
+
+def test_multi_scale_is_recorded_and_passed_to_ultralytics(tmp_path):
+    args = _parse_args(["--multi-scale", "0.25", "--experiment-label", "960-ms"])
+    data_yaml = tmp_path / "data.yaml"
+    recorded = _training_parameters(args, data_yaml)
+    propagated = _ultralytics_training_kwargs(args, data_yaml, tmp_path, "run-id")
+    assert recorded["multi_scale"] == 0.25
+    assert recorded["experiment_label"] == "960-ms"
+    assert propagated["multi_scale"] == 0.25
+
+
+def test_freeze_defaults_are_omitted_and_freeze_zero_is_propagated(tmp_path):
+    data_yaml = tmp_path / "data.yaml"
+    default_args = _parse_args([])
+    assert "freeze" not in _ultralytics_training_kwargs(default_args, data_yaml, tmp_path, "default")
+    args = _parse_args(["--freeze", "0"])
+    assert _training_parameters(args, data_yaml)["freeze"] == 0
+    assert _ultralytics_training_kwargs(args, data_yaml, tmp_path, "unfrozen")["freeze"] == 0
+    args = _parse_args(["--freeze", "11"])
+    assert _training_parameters(args, data_yaml)["freeze"] == 11
+    assert _ultralytics_training_kwargs(args, data_yaml, tmp_path, "frozen")["freeze"] == 11
+
+
+def test_freeze_11_requires_eleven_declared_backbone_layers():
+    class Model:
+        model = [object() for _ in range(12)]
+        yaml = {"backbone": [object() for _ in range(11)]}
+
+    assert _validate_freeze_compatibility(Model(), 11)["backbone_layer_indices"] == list(range(11))
+    Model.yaml = {"backbone": [object() for _ in range(10)]}
+    with pytest.raises(ValueError, match="complete YOLO26n backbone"):
+        _validate_freeze_compatibility(Model(), 11)
+    with pytest.raises(ValueError, match="exceeds"):
+        _validate_freeze_compatibility(Model(), 13)
+
+
+def test_freeze_rejects_negative_values():
+    with pytest.raises(SystemExit):
+        _parse_args(["--freeze", "-1"])
+
+
+def test_post_setup_freeze_verification_records_parameters_and_optimizer(tmp_path):
+    import torch
+
+    class Layer:
+        def __init__(self, parameter=None):
+            self.parameter = parameter
+
+        def parameters(self):
+            return [] if self.parameter is None else [self.parameter]
+
+    frozen = torch.nn.Parameter(torch.ones(4), requires_grad=False)
+    trainable = torch.nn.Parameter(torch.ones(6), requires_grad=True)
+
+    class Model:
+        model = [Layer(frozen), Layer(), Layer(trainable)]
+        yaml = {"backbone": ["stem"]}
+
+        def named_parameters(self):
+            return [("model.0.weight", frozen), ("model.2.weight", trainable)]
+
+    class Trainer:
+        model = Model()
+        optimizer = type("Optimizer", (), {"param_groups": [{"params": [frozen, trainable]}]})()
+
+    manifest = {"training": {}}
+    manifest_path = tmp_path / "experiment.json"
+    trainer = Trainer()
+    _verify_freeze_state(trainer, 1, manifest, manifest_path)
+    _verify_frozen_parameters_unchanged(trainer, manifest, manifest_path)
+    recorded = json.loads(manifest_path.read_text(encoding="utf-8"))["training"]["freeze_verification"]
+    assert recorded["frozen_layer_indices"] == [0]
+    assert recorded["parameters"] == {"total": 10, "frozen": 4, "trainable": 6}
+    assert recorded["optimizer_includes_frozen_parameters"] == 1
+    assert recorded["parameters_unchanged_after_epoch"] is True
+    assert recorded["verified_epochs"] == 1

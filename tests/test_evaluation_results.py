@@ -29,6 +29,7 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
         git_commit="abc123",
         split={"name": "fixture"},
         partition="validation",
+        inference_imgsz=640,
     )
     path = tmp_path / "evaluation.json"
     save_evaluation_result(path, result)
@@ -38,6 +39,8 @@ def test_final_evaluation_json_supports_thresholds_and_hides_checkpoint_fields(t
     assert loaded["per_sequence"]["0.10"]["student"]["MOT17-04-FRCNN"]["fps"] == 0.1
     assert "observations" not in loaded["results"]["0.10"]["student"]
     assert loaded["evaluation_name"] == "final_comparison"
+    assert loaded["inference_imgsz"] == 640
+    assert loaded["yolo_inference_protocol"] == {"confidence_floor": 0.01, "nms": None, "iou": 0.7, "max_det": 300}
     assert loaded["partition"] == "validation"
     assert loaded["git_commit"] == "abc123"
     assert loaded["models"]["student"]["weights_sha256"] == "abc123"

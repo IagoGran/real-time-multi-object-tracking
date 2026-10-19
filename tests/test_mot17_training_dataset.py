@@ -81,6 +81,7 @@ def test_preparation_keeps_all_frames_and_only_labels_valid_pedestrians(tmp_path
     assert len(mixed_label.read_text(encoding="utf-8").splitlines()) == 1
     assert "class_" not in mixed_label.read_text(encoding="utf-8")
     assert json.loads((tmp_path / "out" / "dataset-manifest.json").read_text(encoding="utf-8"))["preparation_policy_version"] == PREPARATION_POLICY_VERSION
+    assert "names:\n  0: person\n" in prepared.yaml_path.read_text(encoding="utf-8")
     assert all("DPM" not in str(path) for path in prepared.train_images + prepared.validation_images)
 
 

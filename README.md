@@ -206,6 +206,19 @@ python -m src.training.inspect_dataset --split-config configs/mot17_training_spl
 python -m src.training.train_detector --mode supervised --split-config configs/mot17_training_split.json --prepare-only
 ```
 
+The usual training settings live in `TRAINING_CONFIG` near the top of
+`src/training/train_detector.py`. Edit that block for a normal run, then start
+training with no flags:
+
+```powershell
+python -m src.training.train_detector
+```
+
+The default configuration runs supervised training. To train in teacher mode,
+set `mode` to `"teacher"` and provide `teacher_weights` in the same block.
+Command-line flags remain available to override the configured values for a
+single run.
+
 Run one-epoch smoke tests on up to eight frames per sequence. The teacher run generates pseudo-labels for the train frames and records their count and confidence statistics in its experiment manifest.
 
 ```powershell

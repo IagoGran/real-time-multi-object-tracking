@@ -67,6 +67,14 @@ MODELS_TO_COMPARE: list[
     ]
 ] = [
     (
+        "YOLO26n finetued",
+        "results/training/yolo26n_supervised_20261015_153159_ab7d8745/weights/best.pt",
+        lambda: YoloDetector(
+            "results/training/yolo26n_supervised_20261015_153159_ab7d8745/weights/best.pt",
+            CLASS_NAMES,
+        ),
+    ),
+    (
         "YOLO26n",
         "yolo26n.pt",
         lambda: YoloDetector(
@@ -100,12 +108,12 @@ MODELS_TO_COMPARE: list[
 ]
 
 
-def _models_to_compare() -> list[ModelSpec]:
+def _models_to_compare(inference_imgsz: int | None = None) -> list[ModelSpec]:
     return [
         ModelSpec(
             name=name,
             signature=signature,
-            factory=factory,
+            factory=(lambda factory=factory: _detector_with_size(factory(), inference_imgsz)),
         )
         for (
             name,
@@ -115,7 +123,13 @@ def _models_to_compare() -> list[ModelSpec]:
     ]
 
 
-def _parse_args() -> argparse.Namespace:
+def _detector_with_size(detector: Detector, inference_imgsz: int | None) -> Detector:
+    if isinstance(detector, YoloDetector):
+        detector.inference_size = inference_imgsz
+    return detector
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Evaluate detector localization "
@@ -135,6 +149,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", action="append", default=[], metavar="NAME=WEIGHTS", help="Model to compare; repeat for a shared evaluation run.")
     parser.add_argument("--evaluation-name", default=None, help="Name for the stable public evaluation JSON.")
     parser.add_argument("--evaluation-output", type=Path, help="Public evaluation JSON path (default results/evaluation/<name>.json).")
+    parser.add_argument("--imgsz", type=int, help="Square YOLO inference size; omitted preserves native-resolution inference aligned to stride.")
 
     parser.add_argument(
         "--all-train",
@@ -224,7 +239,10 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.imgsz is not None and args.imgsz <= 0:
+        parser.error("--imgsz must be greater than zero.")
 
     if (
         args.max_frames is not None
@@ -286,9 +304,9 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-def _models_from_args(specifications: list[str]) -> list[ModelSpec]:
+def _models_from_args(specifications: list[str], inference_imgsz: int | None = None) -> list[ModelSpec]:
     if not specifications:
-        return _models_to_compare()
+        return _models_to_compare(inference_imgsz)
     models = []
     names = set()
     for item in specifications:
@@ -302,7 +320,7 @@ def _models_from_args(specifications: list[str]) -> list[ModelSpec]:
         if signature.startswith("torchvision:"):
             factory = lambda: FasterRCNNDetector(CLASS_NAMES)
         else:
-            factory = lambda signature=signature: YoloDetector(signature, CLASS_NAMES)
+            factory = lambda signature=signature: YoloDetector(signature, CLASS_NAMES, inference_size=inference_imgsz)
         models.append(ModelSpec(name.strip(), signature, factory))
     return models
 
@@ -539,7 +557,7 @@ def main() -> None:
                 max_frames=args.max_frames, train_path=DEFAULT_TRAIN_PATH,
             )
 
-        models = _models_from_args(args.model)
+        models = _models_from_args(args.model, args.imgsz)
 
         thresholds = (
             confidence_thresholds(
@@ -583,6 +601,7 @@ def main() -> None:
                 args.match_iou_threshold
             ),
             max_frames=args.max_frames,
+            inference_imgsz=args.imgsz,
         )
 
         checkpoint = (
@@ -698,6 +717,7 @@ def main() -> None:
                 dataset={"name": "MOT17", "root": str(sequences[0].path.parent.resolve()), "sequences": [s.name for s in sequences], "max_frames_per_sequence": args.max_frames},
                 split={"config": str(args.split_config.resolve()), "name": split_config.name, "train_sequences": list(split_config.train_sequences), "validation_sequences": list(split_config.validation_sequences)} if split_config else None,
                 partition=partition,
+                inference_imgsz=args.imgsz,
                 models=model_metadata,
                 thresholds=thresholds,
                 match_iou_threshold=args.match_iou_threshold,

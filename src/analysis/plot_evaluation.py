@@ -10,8 +10,12 @@ EVALUATION_METRICS = {
     "false_positives_per_frame": "FP/frame",
     "mean_iou": "Mean IoU",
     "mean_edge_error": "Normalized edge error",
+    "mean_edge_error_px": "Mean edge error (px)",
+    "p90_edge_error": "P90 edge error",
     "mean_center_error": "Normalized center error",
+    "mean_center_error_px": "Mean center error (px)",
     "mean_size_error": "Size error",
+    "fps": "Quality sweep FPS",
 }
 HISTORY_METRICS = (
     "train/box_loss", "train/cls_loss", "train/dfl_loss",
@@ -19,6 +23,16 @@ HISTORY_METRICS = (
     "metrics/precision(B)", "metrics/recall(B)",
     "metrics/mAP50(B)", "metrics/mAP50-95(B)",
 )
+COMPARISON_HISTORY_METRICS = {
+    "train/box_loss": ("Training box loss", True),
+    "val/box_loss": ("Validation box loss", False),
+    "train/cls_loss": ("Training classification loss", True),
+    "val/cls_loss": ("Validation classification loss", False),
+    "metrics/mAP50(B)": ("Validation mAP50", False),
+    "metrics/mAP50-95(B)": ("Validation mAP50-95", False),
+    "metrics/precision(B)": ("Validation precision", False),
+    "metrics/recall(B)": ("Validation recall", False),
+}
 
 
 def flatten_evaluations(paths: list[Path]) -> list[dict[str, Any]]:
@@ -106,19 +120,84 @@ def plot_training_history(manifest_paths: list[Path], output_dir: Path) -> int:
     return plotted
 
 
+def plot_training_comparison(csvs: dict[str, Path], output_dir: Path) -> int:
+    """Plot shared training/validation histories from existing Ultralytics CSVs."""
+    import matplotlib.pyplot as plt
+
+    histories: dict[str, list[dict[str, str]]] = {}
+    for label, path in csvs.items():
+        with path.open(newline="", encoding="utf-8-sig") as history_file:
+            histories[label] = [
+                {key.strip(): value.strip() for key, value in row.items() if key}
+                for row in csv.DictReader(history_file)
+            ]
+    if not histories or not any(histories.values()):
+        raise ValueError("No training history rows found in the supplied CSV files.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for column, (title, training_loss) in COMPARISON_HISTORY_METRICS.items():
+        fig, axis = plt.subplots()
+        plotted = False
+        for label, rows in histories.items():
+            if not rows or column not in rows[0]:
+                continue
+            points = [(float(row.get("epoch", index + 1)), float(row[column]))
+                      for index, row in enumerate(rows) if row.get(column)]
+            if not points:
+                continue
+            x, y = zip(*points)
+            axis.plot(x, y, marker=".", label=label)
+            plotted = True
+            map_column = "metrics/mAP50-95(B)"
+            if map_column in rows[0]:
+                best = max((row for row in rows if row.get(map_column)), key=lambda row: float(row[map_column]))
+                best_epoch = float(best.get("epoch", 0))
+                if best_epoch:
+                    axis.axvline(best_epoch, color=axis.lines[-1].get_color(), alpha=0.28, linestyle="--")
+        if not plotted:
+            plt.close(fig)
+            continue
+        subtitle = "Training loss magnitude can vary with imgsz; compare trends." if training_loss else None
+        axis.set(xlabel="Epoch", ylabel=title, title=title)
+        if subtitle:
+            axis.text(0.5, 1.02, subtitle, transform=axis.transAxes, ha="center", va="bottom", fontsize=8)
+        axis.grid(True, alpha=0.3)
+        axis.legend()
+        fig.tight_layout()
+        fig.savefig(output_dir / f"{column.replace('/', '_').replace('(', '').replace(')', '').replace('-', '_')}.png", dpi=160)
+        fig.savefig(output_dir / f"{column.replace('/', '_').replace('(', '').replace(')', '').replace('-', '_')}.svg")
+        plt.close(fig)
+    return sum(1 for column in COMPARISON_HISTORY_METRICS if (output_dir / f"{column.replace('/', '_').replace('(', '').replace(')', '').replace('-', '_')}.png").is_file())
+
+
+def _parse_training_csvs(values: list[str]) -> dict[str, Path]:
+    runs: dict[str, Path] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"Invalid --training-csv {value!r}; expected LABEL=PATH")
+        label, path_text = value.split("=", 1)
+        if not label.strip() or not path_text.strip() or label.strip() in runs:
+            raise ValueError(f"Invalid or duplicate --training-csv: {value!r}")
+        runs[label.strip()] = Path(path_text.strip())
+    return runs
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evaluation", type=Path, action="append", default=[])
     parser.add_argument("--training-manifest", type=Path, action="append", default=[])
+    parser.add_argument("--training-csv", action="append", default=[], metavar="LABEL=CSV", help="Add a run to the comparative training plots; repeat for each experiment.")
     parser.add_argument("--output-dir", type=Path, default=Path("results/plots"))
     args = parser.parse_args(argv)
-    if not args.evaluation and not args.training_manifest:
-        parser.error("Provide --evaluation and/or --training-manifest.")
+    if not args.evaluation and not args.training_manifest and not args.training_csv:
+        parser.error("Provide --evaluation, --training-manifest, and/or --training-csv.")
     if args.evaluation:
         name = json.loads(args.evaluation[0].read_text(encoding="utf-8")).get("evaluation_name", args.evaluation[0].stem)
         plot_evaluations(args.evaluation, args.output_dir / name)
     if args.training_manifest:
         plot_training_history(args.training_manifest, args.output_dir)
+    if args.training_csv:
+        plot_training_comparison(_parse_training_csvs(args.training_csv), args.output_dir / "training_comparison")
 
 
 if __name__ == "__main__":

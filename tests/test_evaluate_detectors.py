@@ -8,6 +8,7 @@ from src.evaluation.evaluate_detectors import (
     format_results_table,
     load_or_create_checkpoint,
     load_split_partition,
+    _models_from_args,
 )
 
 
@@ -32,6 +33,29 @@ def test_confidence_threshold_argument_selects_single_threshold(monkeypatch):
 
 def test_default_output_is_one_benchmark_checkpoint():
     assert DEFAULT_RESULTS_PATH.name == "detector_benchmark.json"
+    assert "inference_imgsz" not in build_benchmark_config([], [], [0.3], 0.5, None)
+
+
+def test_inference_imgsz_parses_and_is_part_of_checkpoint_config(monkeypatch):
+    import src.evaluation.evaluate_detectors as evaluator
+
+    class StubYoloDetector:
+        def __init__(self, model_path, class_names, inference_size=None):
+            self.inference_size = inference_size
+
+    monkeypatch.setattr(evaluator, "YoloDetector", StubYoloDetector)
+    args = _parse_args(["--imgsz", "640"])
+    assert args.imgsz == 640
+    config = build_benchmark_config([], [], [0.3], 0.5, None, inference_imgsz=args.imgsz)
+    assert config["inference_imgsz"] == 640
+    model = _models_from_args(["student=yolo26n.pt"], inference_imgsz=640)[0].factory()
+    assert model.inference_size == 640
+
+
+def test_inference_imgsz_rejects_nonpositive_value():
+    import pytest
+    with pytest.raises(SystemExit):
+        _parse_args(["--imgsz", "0"])
 
 
 def test_resume_creates_single_sweep_checkpoint_and_reuses_existing(

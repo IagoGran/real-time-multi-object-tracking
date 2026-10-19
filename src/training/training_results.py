@@ -18,14 +18,16 @@ def utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def make_experiment_id(mode: str, student_weights: str, teacher_weights: str | None = None) -> str:
+def make_experiment_id(mode: str, student_weights: str, teacher_weights: str | None = None, experiment_label: str | None = None) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     suffix = uuid.uuid4().hex[:8]
     student = re.sub(r"[^A-Za-z0-9.-]+", "-", Path(student_weights).stem).strip("-")
+    label = re.sub(r"[^A-Za-z0-9.-]+", "-", experiment_label or "").strip("-")
+    label_part = f"_{label}" if label else ""
     if mode == "teacher" and teacher_weights:
         teacher = re.sub(r"[^A-Za-z0-9.-]+", "-", Path(teacher_weights).stem).strip("-")
-        return f"{student}_{mode}_{teacher}_{timestamp}_{suffix}"
-    return f"{student}_{mode}_{timestamp}_{suffix}"
+        return f"{student}_{mode}_{teacher}{label_part}_{timestamp}_{suffix}"
+    return f"{student}_{mode}{label_part}_{timestamp}_{suffix}"
 
 
 def _package_version(name: str) -> str | None:
