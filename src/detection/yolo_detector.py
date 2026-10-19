@@ -19,10 +19,14 @@ class YoloDetector(Detector):
         model_path: str | Path,
         class_names: list[str],
         inference_confidence: float = DEFAULT_INFERENCE_CONFIDENCE,
+        device: str | int | None = None,
+        inference_size: int | None = None,
     ):
         self.model = YOLO(model_path)
         self.class_names = class_names
         self.inference_confidence = inference_confidence
+        self.device = device
+        self.inference_size = inference_size
 
     def predict(
         self,
@@ -35,14 +39,16 @@ class YoloDetector(Detector):
         No benchmark/evaluation confidence threshold is applied here.
         """
 
-        imgsz = self._get_inference_size(frame)
+        imgsz = self.inference_size or self._get_inference_size(frame)
 
-        results = self.model(
-            frame,
-            imgsz=imgsz,
-            verbose=False,
-            conf=self.inference_confidence,
-        )
+        prediction_options = {
+            "imgsz": imgsz,
+            "verbose": False,
+            "conf": self.inference_confidence,
+        }
+        if self.device is not None:
+            prediction_options["device"] = self.device
+        results = self.model(frame, **prediction_options)
 
         detections: list[Detection] = []
 

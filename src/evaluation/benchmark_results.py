@@ -29,14 +29,19 @@ def build_benchmark_config(
     confidence_thresholds: list[float],
     match_iou_threshold: float,
     max_frames: int | None,
+    inference_imgsz: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    config = {
         "models": models,
         "sequences": sequences,
         "confidence_thresholds": confidence_thresholds,
         "match_iou_threshold": match_iou_threshold,
         "max_frames": max_frames,
     }
+    # Keep historical native-resolution checkpoint configs resume-compatible.
+    if inference_imgsz is not None:
+        config["inference_imgsz"] = inference_imgsz
+    return config
 
 
 def new_checkpoint(config: dict[str, Any]) -> dict[str, Any]:

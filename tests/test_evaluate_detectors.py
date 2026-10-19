@@ -7,6 +7,8 @@ from src.evaluation.evaluate_detectors import (
     confidence_thresholds,
     format_results_table,
     load_or_create_checkpoint,
+    load_split_partition,
+    _models_from_args,
 )
 
 
@@ -31,6 +33,29 @@ def test_confidence_threshold_argument_selects_single_threshold(monkeypatch):
 
 def test_default_output_is_one_benchmark_checkpoint():
     assert DEFAULT_RESULTS_PATH.name == "detector_benchmark.json"
+    assert "inference_imgsz" not in build_benchmark_config([], [], [0.3], 0.5, None)
+
+
+def test_inference_imgsz_parses_and_is_part_of_checkpoint_config(monkeypatch):
+    import src.evaluation.evaluate_detectors as evaluator
+
+    class StubYoloDetector:
+        def __init__(self, model_path, class_names, inference_size=None):
+            self.inference_size = inference_size
+
+    monkeypatch.setattr(evaluator, "YoloDetector", StubYoloDetector)
+    args = _parse_args(["--imgsz", "640"])
+    assert args.imgsz == 640
+    config = build_benchmark_config([], [], [0.3], 0.5, None, inference_imgsz=args.imgsz)
+    assert config["inference_imgsz"] == 640
+    model = _models_from_args(["student=yolo26n.pt"], inference_imgsz=640)[0].factory()
+    assert model.inference_size == 640
+
+
+def test_inference_imgsz_rejects_nonpositive_value():
+    import pytest
+    with pytest.raises(SystemExit):
+        _parse_args(["--imgsz", "0"])
 
 
 def test_resume_creates_single_sweep_checkpoint_and_reuses_existing(
@@ -85,3 +110,24 @@ def test_results_table_formats_simulated_metrics():
     assert "0.790" in table
     assert "FP/fr" in table
     assert "P90%" in table
+
+
+def test_split_partition_loads_exact_validation_sequences(tmp_path):
+    dataset_root = tmp_path / "MOT17" / "train"
+    names = ["MOT17-02-FRCNN", "MOT17-04-FRCNN", "MOT17-11-FRCNN"]
+    for name in names:
+        image_dir = dataset_root / name / "img1"
+        (image_dir).mkdir(parents=True)
+        (image_dir / "000001.jpg").touch()
+        gt_dir = dataset_root / name / "gt"
+        gt_dir.mkdir()
+        (gt_dir / "gt.txt").write_text("", encoding="utf-8")
+    (tmp_path / "configs").mkdir()
+    config_path = tmp_path / "configs" / "split.json"
+    config_path.write_text(
+        '{"format_version":2,"name":"fixture","dataset_root":"MOT17/train","prepared_dataset_root":"prepared","variant":"FRCNN","train_sequences":["MOT17-02-FRCNN"],"validation_sequences":["MOT17-04-FRCNN","MOT17-11-FRCNN"],"preparation_policy":"all_frames_target_class_only_v2"}',
+        encoding="utf-8",
+    )
+    config, sequences = load_split_partition(config_path, "validation", max_frames=1)
+    assert [sequence.name for sequence in sequences] == list(config.validation_sequences)
+    assert all(len(sequence.frames) == 1 for sequence in sequences)

@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "name": "mot17-sequence-split-v2",
+  "dataset_root": "datasets/MOT17/train",
+  "prepared_dataset_root": "datasets/MOT17_yolo",
+  "variant": "FRCNN",
+  "train_sequences": [
+    "MOT17-02-FRCNN",
+    "MOT17-05-FRCNN",
+    "MOT17-09-FRCNN",
+    "MOT17-10-FRCNN",
+    "MOT17-13-FRCNN"
+  ],
+  "validation_sequences": [
+    "MOT17-04-FRCNN",
+    "MOT17-11-FRCNN"
+  ],
+  "preparation_policy": "all_frames_target_class_only_v2"
+}

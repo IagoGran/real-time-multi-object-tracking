@@ -1,0 +1,398 @@
+{
+  "format_version": 2,
+  "split_config": "/home/igran/proyectos/proyectos_personales/real-time-multi-object-tracking/configs/mot17_training_split.json",
+  "dataset_root": "/home/igran/proyectos/proyectos_personales/real-time-multi-object-tracking/datasets/MOT17/train",
+  "split": {
+    "train": [
+      "MOT17-02-FRCNN",
+      "MOT17-05-FRCNN",
+      "MOT17-09-FRCNN",
+      "MOT17-10-FRCNN",
+      "MOT17-13-FRCNN"
+    ],
+    "validation": [
+      "MOT17-04-FRCNN",
+      "MOT17-11-FRCNN"
+    ]
+  },
+  "preparation_policy_version": "all_frames_target_class_only_v2",
+  "preparation_policy": "Retain all readable frames; convert only mark=1,class=1 annotations to pedestrian labels. Other annotations are excluded from positive labels, not used as ignore regions.",
+  "ignore_region_loss": false,
+  "sequences": {
+    "MOT17-02-FRCNN": {
+      "partition": "train",
+      "frames_original": 600,
+      "frames_retained": 600,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 600,
+      "frames_with_excluded_annotations_but_retained": 600,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 18581,
+      "target_gt_annotations_valid": 18581,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_2": 1549,
+        "mark_0_class_4": 1559,
+        "mark_0_class_7": 5271,
+        "mark_0_class_8": 1200,
+        "mark_0_class_9": 1843
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 18581,
+        "2": 1549,
+        "4": 1559,
+        "7": 5271,
+        "8": 1200,
+        "9": 1843
+      },
+      "resolutions": {
+        "1920x1080": 600
+      },
+      "visibility": {
+        "count": 18581,
+        "mean": 0.404253157590119,
+        "median": 0.26132,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 9188,
+          "0.25-0.50": 2105,
+          "0.50-0.75": 1872,
+          ">=0.75": 5416
+        }
+      }
+    },
+    "MOT17-05-FRCNN": {
+      "partition": "train",
+      "frames_original": 837,
+      "frames_retained": 837,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 837,
+      "frames_with_excluded_annotations_but_retained": 329,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 6917,
+      "target_gt_annotations_valid": 6917,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_2": 315,
+        "mark_0_class_3": 196,
+        "mark_0_class_4": 315,
+        "mark_0_class_6": 11,
+        "mark_0_class_8": 24,
+        "mark_0_class_9": 235
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 6917,
+        "2": 315,
+        "3": 196,
+        "4": 315,
+        "6": 11,
+        "8": 24,
+        "9": 235
+      },
+      "resolutions": {
+        "640x480": 837
+      },
+      "visibility": {
+        "count": 6917,
+        "mean": 0.5189203967616018,
+        "median": 0.55,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 2150,
+          "0.25-0.50": 1100,
+          "0.50-0.75": 1123,
+          ">=0.75": 2544
+        }
+      }
+    },
+    "MOT17-09-FRCNN": {
+      "partition": "train",
+      "frames_original": 525,
+      "frames_retained": 525,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 525,
+      "frames_with_excluded_annotations_but_retained": 525,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 5325,
+      "target_gt_annotations_valid": 5325,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_12": 1947,
+        "mark_0_class_7": 514,
+        "mark_0_class_8": 1575,
+        "mark_0_class_9": 1050
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 5325,
+        "7": 514,
+        "8": 1575,
+        "9": 1050,
+        "12": 1947
+      },
+      "resolutions": {
+        "1920x1080": 525
+      },
+      "visibility": {
+        "count": 5325,
+        "mean": 0.5856367612676057,
+        "median": 0.68794,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 1580,
+          "0.25-0.50": 591,
+          "0.50-0.75": 645,
+          ">=0.75": 2509
+        }
+      }
+    },
+    "MOT17-10-FRCNN": {
+      "partition": "train",
+      "frames_original": 654,
+      "frames_retained": 654,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 654,
+      "frames_with_excluded_annotations_but_retained": 654,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 12839,
+      "target_gt_annotations_valid": 12837,
+      "target_gt_annotations_lost": 2,
+      "target_gt_annotation_loss_percent": 0.015577537191370044,
+      "target_gt_annotations_lost_invalid_or_unreadable": 2,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_10": 2740,
+        "mark_0_class_3": 25,
+        "mark_0_class_7": 1376,
+        "mark_0_class_8": 470
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 12839,
+        "3": 25,
+        "7": 1376,
+        "8": 470,
+        "10": 2740
+      },
+      "resolutions": {
+        "1920x1080": 654
+      },
+      "visibility": {
+        "count": 12837,
+        "mean": 0.688008505201371,
+        "median": 0.84444,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 2277,
+          "0.25-0.50": 1388,
+          "0.50-0.75": 1967,
+          ">=0.75": 7205
+        }
+      }
+    },
+    "MOT17-13-FRCNN": {
+      "partition": "train",
+      "frames_original": 750,
+      "frames_retained": 750,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 750,
+      "frames_with_excluded_annotations_but_retained": 749,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 11642,
+      "target_gt_annotations_valid": 11642,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_10": 2733,
+        "mark_0_class_11": 680,
+        "mark_0_class_12": 122,
+        "mark_0_class_3": 4918,
+        "mark_0_class_4": 103,
+        "mark_0_class_8": 4
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 11642,
+        "3": 4918,
+        "4": 103,
+        "8": 4,
+        "10": 2733,
+        "11": 680,
+        "12": 122
+      },
+      "resolutions": {
+        "1920x1080": 750
+      },
+      "visibility": {
+        "count": 11642,
+        "mean": 0.671422807511596,
+        "median": 0.73239,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 1618,
+          "0.25-0.50": 1985,
+          "0.50-0.75": 2388,
+          ">=0.75": 5651
+        }
+      }
+    },
+    "MOT17-04-FRCNN": {
+      "partition": "validation",
+      "frames_original": 1050,
+      "frames_retained": 1050,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 1050,
+      "frames_with_excluded_annotations_but_retained": 1050,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 47557,
+      "target_gt_annotations_valid": 47557,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_10": 23100,
+        "mark_0_class_11": 18900,
+        "mark_0_class_3": 1050,
+        "mark_0_class_4": 11550,
+        "mark_0_class_5": 1050,
+        "mark_0_class_7": 4798
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 47557,
+        "3": 1050,
+        "4": 11550,
+        "5": 1050,
+        "7": 4798,
+        "10": 23100,
+        "11": 18900
+      },
+      "resolutions": {
+        "1920x1080": 1050
+      },
+      "visibility": {
+        "count": 47557,
+        "mean": 0.6176967826259016,
+        "median": 0.63133,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 7736,
+          "0.25-0.50": 10885,
+          "0.50-0.75": 8801,
+          ">=0.75": 20135
+        }
+      }
+    },
+    "MOT17-11-FRCNN": {
+      "partition": "validation",
+      "frames_original": 900,
+      "frames_retained": 900,
+      "frames_retained_percent": 100.0,
+      "frames_discarded_for_non_target_annotations": 0,
+      "frames_without_target_gt": 0,
+      "frames_with_target_gt": 900,
+      "frames_with_excluded_annotations_but_retained": 624,
+      "unreadable_frames": 0,
+      "target_gt_annotations_raw": 9436,
+      "target_gt_annotations_valid": 9436,
+      "target_gt_annotations_lost": 0,
+      "target_gt_annotation_loss_percent": 0.0,
+      "target_gt_annotations_lost_invalid_or_unreadable": 0,
+      "target_gt_annotations_lost_missing_image_frame": 0,
+      "excluded_annotations_by_class": {
+        "mark_0_class_12": 181,
+        "mark_0_class_7": 82,
+        "mark_0_class_8": 322,
+        "mark_0_class_9": 596
+      },
+      "annotation_counts_by_mot_class": {
+        "1": 9436,
+        "7": 82,
+        "8": 322,
+        "9": 596,
+        "12": 181
+      },
+      "resolutions": {
+        "1920x1080": 900
+      },
+      "visibility": {
+        "count": 9436,
+        "mean": 0.6449595031051293,
+        "median": 0.76636,
+        "min": 0.0,
+        "max": 1.0,
+        "bins": {
+          "<0.25": 1918,
+          "0.25-0.50": 1381,
+          "0.50-0.75": 1302,
+          ">=0.75": 4835
+        }
+      }
+    }
+  },
+  "class_annotation_counts": {
+    "1": 112297,
+    "2": 1864,
+    "3": 6189,
+    "4": 13527,
+    "5": 1050,
+    "6": 11,
+    "7": 12041,
+    "8": 3595,
+    "9": 3724,
+    "10": 28573,
+    "11": 19580,
+    "12": 2250
+  },
+  "totals": {
+    "train": {
+      "frames_original": 3366,
+      "frames_retained": 3366,
+      "frames_with_target_gt": 3366,
+      "frames_without_target_gt": 0,
+      "target_gt_annotations_raw": 55304,
+      "target_gt_annotations_valid": 55302,
+      "target_gt_annotations_lost": 2,
+      "unreadable_frames": 0
+    },
+    "validation": {
+      "frames_original": 1950,
+      "frames_retained": 1950,
+      "frames_with_target_gt": 1950,
+      "frames_without_target_gt": 0,
+      "target_gt_annotations_raw": 56993,
+      "target_gt_annotations_valid": 56993,
+      "target_gt_annotations_lost": 0,
+      "unreadable_frames": 0
+    }
+  },
+  "warnings": [
+    "MOT17-10-FRCNN: 2 target annotations cannot become labels (invalid/unreadable boxes=2, missing image frames=0)."
+  ]
+}

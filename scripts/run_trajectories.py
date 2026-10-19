@@ -1,8 +1,8 @@
 # scripts/run_trajectories.py
 
-from pathlib import Path
 import configparser
 import time
+from pathlib import Path
 
 import cv2
 
@@ -10,7 +10,6 @@ from src.detection.yolo_detector import YoloDetector
 from src.tracking.byte_tracker import ByteTracker
 from src.tracking.trajectory_manager import TrajectoryManager
 from src.visualization.frame_renderer import FrameRenderer
-
 
 # -------------------------------------------------------------------
 # Configuration
